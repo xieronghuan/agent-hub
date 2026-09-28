@@ -248,7 +248,14 @@
   });
 
   cmd.focus();
-  document.body.addEventListener('click', function () { cmd.focus(); });
+  /* 点空白处把焦点还给输入框。
+     ⚠️ 下拉框和按钮不抢 —— 原生 <select> 一旦失焦，展开的列表会立刻收起来
+     （症状：下拉栏「一点开就没掉了」）。 */
+  document.body.addEventListener('click', function (e) {
+    const t = e.target;
+    if (t && t.closest && t.closest('select, input, button, textarea, a, option')) return;
+    cmd.focus();
+  });
 </script>
 </body>
 </html>
