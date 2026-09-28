@@ -179,7 +179,13 @@ class Relay extends EventEmitter {
     }
 
     if (leg.def.kind === 'acp') {
-      try { leg.link.disconnect(); } catch (_) {}
+      // ⚠️ 旧 link 断开时会 emit('close')，而那个回调是「把这条腿标成 closed」。
+      // 腿马上要换成新 link，不能被旧连接的善后拖下水 —— 先把它的 close 监听摘掉。
+      const old = leg.link;
+      if (old) {
+        try { old.removeAllListeners('close'); } catch (_) {}
+        try { old.disconnect(); } catch (_) {}
+      }
       const base = leg.base || await this._discoverAcp();
       const link = this._makeLink(Object.assign({}, leg.def, { base }));
       await link.connect();
@@ -187,6 +193,10 @@ class Relay extends EventEmitter {
       await link.startEvents();
       await link.newSession(cwd);
       leg.link = link;
+      link.on('close', () => this._setStatus(leg.def.id, 'closed'));
+      // ⚠️ 切完必须回到 ready。不设的话状态会停在 closed：
+      // 界面显示未连接，而且 send() 会因为「未就绪」直接拒发。
+      this._setStatus(leg.def.id, 'ready');
       this.emit('info', `${leg.def.name} 已切到 ${cwd}（session=${link.sessionId}）`);
       return link.sessionId;
     }
