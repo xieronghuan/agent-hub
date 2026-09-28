@@ -25,6 +25,7 @@ const path = require('path');
 const { CodexLink } = require('./relay');
 const { WorkBuddyLink } = require('./workbuddy-link');
 const { discoverPorts } = require('./discover');
+const wbSessions = require('./wb-sessions');
 const i18n = require('./i18n');
 const t = i18n.t;
 
@@ -47,6 +48,8 @@ class Relay extends EventEmitter {
     this._buf = {};                         // id → 本轮累积的正文
     this._armed = false;                    // 只有用户"发给所有人"才开启
     this._hop = 0;
+    // 借用客户端已有的会话（见 app/wb-sessions.js）
+    this.borrowClientSession = o.borrowClientSession !== false;
   }
 
   /* ---------- 留档与状态 ---------- */
@@ -103,8 +106,8 @@ class Relay extends EventEmitter {
         await link.connect();
         await link.init();
         await link.startEvents();
-        await link.newSession(cwd);
-        this.emit('info', t('relay.readyAcp', { name: def.name, base, session: link.sessionId, cwd }));
+        const sid = await this._openSession(link, def, cwd);
+        this.emit('info', t('relay.readyAcp', { name: def.name, base, session: sid, cwd }));
       } else {
         throw new Error(t('relay.unsupportedKind', { kind: def.kind }));
       }
@@ -178,6 +181,27 @@ class Relay extends EventEmitter {
         this.emit('info', t('relay.autoForwardFailed', { to: a.name || a.id, msg: res.error }));
       }
     }
+  }
+
+  /**
+   * 为一个目录开 ACP 会话。
+   *
+   * ⚠️ `session/new` 拿到的会话**不会出现在 WorkBuddy 客户端里**（客户端那份列表读的是
+   * `~/.workbuddy/workbuddy.db`），所以从中继发出去的内容在客户端窗口里看不到。
+   * 优先**借用客户端已经在这个目录用的那条会话**，借用不成再新建。
+   */
+  async _openSession(link, def, cwd) {
+    const borrow = this.borrowClientSession ? wbSessions.findSessionFor(cwd) : '';
+    if (borrow) {
+      try {
+        await link.loadSession(borrow, cwd);
+        this.emit('info', t('relay.borrowed', { name: def.name, session: borrow }));
+        return link.sessionId;
+      } catch (e) {
+        this.emit('info', t('relay.borrowFailed', { session: borrow, msg: e.message }));
+      }
+    }
+    return link.newSession(cwd);
   }
 
   async _discoverAcp() {
@@ -267,14 +291,14 @@ class Relay extends EventEmitter {
       await link.connect();
       await link.init();
       await link.startEvents();
-      await link.newSession(cwd);
+      const sid = await this._openSession(link, leg.def, cwd);
       leg.link = link;
       link.on('close', () => this._setStatus(leg.def.id, 'closed'));
       // ⚠️ 切完必须回到 ready。不设的话状态会停在 closed：
       // 界面显示未连接，而且 send() 会因为「未就绪」直接拒发。
       this._setStatus(leg.def.id, 'ready');
-      this.emit('info', t('relay.switchedSession', { name: leg.def.name, cwd, session: link.sessionId }));
-      return link.sessionId;
+      this.emit('info', t('relay.switchedSession', { name: leg.def.name, cwd, session: sid }));
+      return sid;
     }
     return null;
   }

@@ -478,6 +478,7 @@ async function boot() {
     logFile: ARCHIVE_FILE,
     autoRelay: cfg.get('autoRelay') !== false,
     maxHops: Number(cfg.get('autoRelayMaxHops')) || 3,
+    borrowClientSession: cfg.get('borrowClientSession') !== false,
   });
   relay.on('info', (m) => log(m));
   relay.on('delta', ({ from, text }) => push({ who: from, text }));

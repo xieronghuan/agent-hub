@@ -35,6 +35,9 @@ const DEFAULTS = {
   // the others (bounded by autoRelayMaxHops rounds).
   autoRelay: true,
   autoRelayMaxHops: 3,
+  // Attach to the WorkBuddy conversation the desktop client already shows for a
+  // folder, instead of a new session the client never lists.
+  borrowClientSession: true,
   // Agents (falls back to app/agents.js when empty)
   agents: DEFAULT_AGENTS,
 };

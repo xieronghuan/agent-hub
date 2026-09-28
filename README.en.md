@@ -97,6 +97,22 @@ Click Settings in the UI to edit it:
 | Codex port | — | defaults to `8899` |
 | Interface language | `RELAY_LANG` | empty follows the system; set `zh` or `en` to pin it |
 
+### Where the conversation lives
+
+**The WorkBuddy leg attaches to the conversation your client already has for that folder**, so
+what the hub sends and receives shows up in the WorkBuddy window and can be continued there.
+
+Why: a session created by ACP itself never appears in the client's list (that list is read from a
+local database), so anything sent through one would be invisible to you.
+
+- If the folder has no conversation in the client yet, one is created — and it will not show up in
+  the client either
+- To stop borrowing your existing conversation: set `borrowClientSession` to `false` in
+  `~/.agent-hub/config.json`
+
+Codex works differently: the thread the hub starts is written under `~/.codex/sessions/`, so
+`codex resume <threadId>` opens it — but the client's sidebar does not necessarily list it.
+
 Config stays on your machine; it doesn't travel with the repo. Everything lives in
 `~/.agent-hub/`:
 
