@@ -26,6 +26,8 @@ const DICT = {
     'ui.clearHistory': '清空留档',
     'ui.clearHistoryTitle': '清空历史留档 relay.jsonl',
     'ui.targetTitle': '这条消息发给谁',
+    'target.everyone': '所有人',
+    'target.everyoneTitle': '一条消息同时发给所有接入的 agent',
     'ui.inputPlaceholder': '输入消息，回车发送…',
     'ui.helpHint': '/help 看命令',
     'ui.noBridge': '（未连接到主进程）',
@@ -108,6 +110,7 @@ const DICT = {
     'help.ws': '  /ws            列出工作空间',
     'help.wsSwitch': '  /ws <编号|路径> 切换当前默认目标的工作空间',
     'help.target': '  /t <agentId>   切换底栏默认目标',
+    'help.everyone': '  底栏目标选「所有人」，一条消息会同时发给全部',
     'help.status': '  /status        看各 agent 状态',
     'help.clear': '  /clear         清屏',
     'help.help': '  /help          看这条',
@@ -118,7 +121,8 @@ const DICT = {
     'cmd.targetSet': '默认目标 → {id}',
     'cmd.targetOptions': '可选：{list}',
     'cmd.relayNotReady': '中继未就绪，发不出去。看上面的启动日志。',
-    'cmd.sendFailed': '发送失败：{msg}',
+    'cmd.sentTo': '→ {names}',
+    'cmd.sendFailedTo': '发给 {name} 失败：{msg}',
     'cmd.switchFailed': '切换失败：{msg}',
     'ws.switched': '{id} 工作空间 → {path}',
 
@@ -152,6 +156,7 @@ const DICT = {
     'relay.unknownAgent': '未知 agent：{id}',
     'relay.notReady': '{name} 未就绪',
     'relay.mark': '[中继·{name}] ',
+    'relay.desk': '[中继] 这张桌子上还接入了：{others}。你看不到它们，也没法直接给它们发消息 —— 只需要回答发给你的内容。',
   },
 
   en: {
@@ -161,6 +166,8 @@ const DICT = {
     'ui.clearHistory': 'Clear history',
     'ui.clearHistoryTitle': 'Clear the message archive (relay.jsonl)',
     'ui.targetTitle': 'Who this message goes to',
+    'target.everyone': 'Everyone',
+    'target.everyoneTitle': 'Send one message to every connected agent',
     'ui.inputPlaceholder': 'Type a message, press Enter…',
     'ui.helpHint': '/help for commands',
     'ui.noBridge': '(not connected to the main process)',
@@ -243,6 +250,7 @@ const DICT = {
     'help.ws': '  /ws            list workspaces',
     'help.wsSwitch': '  /ws <n|path>   switch the current target to another workspace',
     'help.target': '  /t <agentId>   change the default target',
+    'help.everyone': '  Pick "Everyone" in the bottom bar to send one message to all agents',
     'help.status': '  /status        show agent status',
     'help.clear': '  /clear         clear the screen',
     'help.help': '  /help          show this',
@@ -253,7 +261,8 @@ const DICT = {
     'cmd.targetSet': 'Default target → {id}',
     'cmd.targetOptions': 'Available: {list}',
     'cmd.relayNotReady': 'The relay is not ready, nothing was sent. Check the startup log above.',
-    'cmd.sendFailed': 'Send failed: {msg}',
+    'cmd.sentTo': '→ {names}',
+    'cmd.sendFailedTo': 'Failed to send to {name}: {msg}',
     'cmd.switchFailed': 'Switch failed: {msg}',
     'ws.switched': '{id} workspace → {path}',
 
@@ -287,6 +296,7 @@ const DICT = {
     'relay.unknownAgent': 'Unknown agent: {id}',
     'relay.notReady': '{name} is not ready',
     'relay.mark': '[Agent Hub · {name}] ',
+    'relay.desk': '[Agent Hub] Also connected to this hub: {others}. You cannot see or message them directly — just answer what is sent to you.',
   },
 };
 

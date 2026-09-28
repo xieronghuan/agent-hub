@@ -54,8 +54,8 @@ English in Settings.
 
 ## Usage
 
-Pick who you're sending to from the dropdown at the bottom left, type, and press Enter. There are
-two buttons in the top right: Settings and Clear history.
+Pick who you're sending to from the dropdown at the bottom left, type, and press Enter. Choose
+**Everyone** and one message goes to every agent at once.
 
 A few commands you can type straight into the input box:
 
@@ -152,6 +152,15 @@ symmetric interfaces, so either one is a fine template.
 
 **Double-clicking the exe does nothing** — check your antivirus first; unsigned exes get blocked
 a lot. The runtime log is at `~/.agent-hub/relay.log`.
+
+**I asked them to "talk to each other" and only one answered** — the agents cannot see each other,
+and that is deliberate: all routing lives in the hub, so each agent believes it is simply talking
+to you. Picking "Everyone" delivers one message to all of them, but they still answer separately
+and never see each other's replies.
+
+To actually get them exchanging content, you carry it across: paste one agent's reply into the
+other. Each agent is told once, on its first message, who else is on the hub — so it no longer
+guesses (and stops inventing a subagent to play the other party).
 
 **Codex never connects, or a message produces nothing** — it's almost always the proxy. Fill it in
 under Settings. Startup probes common ports once, but you may have to type it in yourself.

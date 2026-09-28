@@ -126,17 +126,29 @@
   }
 
   /* ---------- 底栏：发给谁 ---------- */
+  const ALL = '__all__';                          // 与主进程约定的「所有人」标记
+
   function renderTargets() {
     const prev = targetSel.value;
     targetSel.innerHTML = '';
+    // 只有多于一个 agent 时，「所有人」才有意义
+    if (AGENTS.length > 1) {
+      const oAll = document.createElement('option');
+      oAll.value = ALL;
+      oAll.textContent = T('target.everyone');
+      oAll.title = T('target.everyoneTitle');
+      targetSel.appendChild(oAll);
+    }
     AGENTS.forEach(function (a) {
       const o = document.createElement('option');
       o.value = a.id;
       o.textContent = a.name;
-      if (a.id === prev) o.selected = true;
       targetSel.appendChild(o);
     });
-    if (!targetSel.value && AGENTS.length) targetSel.value = AGENTS[0].id;
+    // 保留原选择；没选过就落在第一个 agent 上（不要默认成「所有人」）
+    const known = AGENTS.some(function (a) { return a.id === prev; })
+      || (prev === ALL && AGENTS.length > 1);
+    targetSel.value = known ? prev : (AGENTS[0] ? AGENTS[0].id : '');
   }
 
   /** 取路径最后一段（文件夹名） */

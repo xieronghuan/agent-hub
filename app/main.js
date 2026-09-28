@@ -143,6 +143,11 @@ function loadAgents() {
 }
 loadAgents();
 
+/** The bottom bar's "Everyone" entry: one message goes to every agent */
+const ALL = '__all__';
+/** Every agent that is actually enabled */
+function liveAgents() { return AGENTS.filter((a) => a.enabled !== false); }
+
 // Running from source: default workspace is the repo root (one level above app/).
 // Packaged there is no repo, so fall back to the home directory.
 const PROJECT_ROOT = app.isPackaged ? os.homedir() : path.resolve(HERE, '..');
@@ -307,6 +312,7 @@ function helpText() {
     t('help.ws'),
     t('help.wsSwitch'),
     t('help.target'),
+    t('help.everyone'),
     t('help.status'),
     t('help.clear'),
     t('help.help'),
@@ -332,7 +338,10 @@ async function handleInput(text, to) {
     const n = Number(a);
     const pick = (Number.isInteger(n) && n >= 1 && n <= workspaces.length) ? workspaces[n - 1] : a;
     if (!fs.existsSync(pick)) { log(t('cmd.pathMissing', { path: pick })); return; }
-    await applyWs(targetOf() || (AGENTS[0] && AGENTS[0].id), pick);
+    // Follow whatever the bottom bar is on; "Everyone" switches all of them
+    const cur = to || targetOf() || (AGENTS[0] && AGENTS[0].id);
+    const targets = cur === ALL ? liveAgents().map((x) => x.id) : [cur];
+    for (const id of targets) await applyWs(id, pick);
     return;
   }
   if (text === '/t' || text.startsWith('/t ')) {
@@ -344,9 +353,21 @@ async function handleInput(text, to) {
 
   const tgt = to || targetOf() || (AGENTS[0] && AGENTS[0].id);
   if (!relay || !relay.started) { log(t('cmd.relayNotReady')); return; }
-  push({ who: 'sys', text: `→ ${tgt}` });
-  const r = await relay.send(tgt, text);
-  if (!r.ok) log(t('cmd.sendFailed', { msg: r.error }));
+
+  // "Everyone" fans one message out to every enabled agent
+  const targets = tgt === ALL
+    ? liveAgents()
+    : [AGENTS.find((a) => a.id === tgt)].filter(Boolean);
+  if (!targets.length) {
+    log(t('cmd.targetOptions', { list: AGENTS.map((x) => x.id).join(' / ') }));
+    return;
+  }
+
+  push({ who: 'sys', text: t('cmd.sentTo', { names: targets.map((a) => a.name || a.id).join(', ') }) });
+  for (const a of targets) {
+    const r = await relay.send(a.id, text);
+    if (!r.ok) log(t('cmd.sendFailedTo', { name: a.name || a.id, msg: r.error }));
+  }
 }
 
 /** Point one agent at a different workspace */

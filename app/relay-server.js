@@ -40,6 +40,7 @@ class Relay extends EventEmitter {
     this.started = false;
     this.markInbound = o.markInbound !== false;
     this._acpBase = null;
+    this._deskTold = {};                   // id → 已经交代过"桌上还有谁"
   }
 
   /* ---------- 留档与状态 ---------- */
@@ -149,15 +150,27 @@ class Relay extends EventEmitter {
     this.emit('sent', { to: agentId, text: body });
 
     try {
+      // Agents cannot see each other, so without being told they simply guess —
+      // asked to "talk to the other one", Codex invented a subagent of its own.
+      // Say it once per session, not on every message.
+      let head = '';
+      if (!this._deskTold[agentId]) {
+        const others = this.agents
+          .filter((a) => a.id !== agentId)
+          .map((a) => a.name || a.id);
+        this._deskTold[agentId] = true;
+        if (others.length) head = t('relay.desk', { others: others.join(' / ') }) + '\n';
+      }
+
       if (leg.def.kind === 'codex-app-server') {
-        await leg.link.say(body);
+        await leg.link.say(head + body);
         return { ok: true };
       }
       // Mark messages injected into an ACP session; otherwise they look exactly
       // like something the user typed themselves.
       const mark = t('relay.mark', { name: leg.def.name || leg.def.id });
       const marked = this.markInbound ? mark + body : body;
-      const r = await leg.link.prompt(marked);
+      const r = await leg.link.prompt(head + marked);
       return { ok: true, text: r.text };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -169,6 +182,8 @@ class Relay extends EventEmitter {
   async switchWs(agentId, cwd) {
     const leg = this.legs.get(agentId);
     if (!leg) throw new Error(t('relay.unknownAgent', { id: agentId }));
+    // A new session/thread forgets who else is on the desk, so announce it again
+    delete this._deskTold[agentId];
     leg.cwd = cwd;
     this.cwds[agentId] = cwd;
     if (!leg.link || leg.status !== 'ready') {
