@@ -457,13 +457,22 @@ async function handleInput(text, to) {
   }
 }
 
-/** 客户端现在有没有开着这个目录的 ACP 入口 */
-function clientHasAcpFor(cwd) {
+/**
+ * 客户端**现在真的**开着这个目录的 ACP 入口吗？
+ *
+ * ⚠️ 必须拿 `discoverPorts()`（真正在监听的端口）去过滤 `portHints()`。
+ * 只查 hints 会误判 —— `~/.workbuddy/sessions/*.json` 是**历史记录**，
+ * 退出的入口文件还留在那儿。实测就栽在这：hints 里有一条"中继站"的旧入口，
+ * 进程早没了，于是这里以为「客户端开着中继站」、跳过自己起后端，
+ * 结果用了另一个目录（word引用插件）的入口 —— 内容又跑到别的项目去了。
+ */
+async function clientHasAcpFor(cwd) {
   try {
+    const live = await discoverPorts();
     const hints = portHints();
     const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
     const want = norm(cwd);
-    return Object.keys(hints).some((k) => norm(hints[k]) === want);
+    return live.some((p) => hints[p] && norm(hints[p]) === want);
   } catch (_) { return false; }
 }
 
@@ -488,7 +497,7 @@ async function restartOwnHost(a, cwd) {
   // 客户端**正好开着**这个目录时，就接着用它的入口 —— 那条是客户端自己的会话，
   // 稳，而且不依赖「CLI 登录过没有」。只有它没开这个目录（那才是用户抱怨的场景），
   // 才需要我们自己在目标目录下起一个。
-  if (clientHasAcpFor(cwd)) {
+  if (await clientHasAcpFor(cwd)) {
     log(t('boot.wbHostUseClient', { name: a.name || a.id, cwd }));
     return null;
   }
