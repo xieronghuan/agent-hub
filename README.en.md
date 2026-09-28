@@ -54,8 +54,8 @@ isn't.
 
 ## Usage
 
-The select in the bottom left picks who you're sending to. Type, press Enter. Top right has two
-buttons: 设置 (Settings) and 清空留档 (clear history).
+Pick who you're sending to from the dropdown at the bottom left, type, and press Enter. There are
+two buttons in the top right: 设置 (Settings) and 清空留档 (clear history).
 
 A few commands you can type straight into the input box:
 
@@ -177,8 +177,8 @@ npm run pack     # build dist/AgentHub.exe
 A few manual test scripts live in the repo root. Start the corresponding service first:
 
 ```bash
-node test-workbuddy-link.js    # the WorkBuddy line
-node test-codex-link.js        # the Codex line
+node test-workbuddy-link.js    # the WorkBuddy link
+node test-codex-link.js        # the Codex link
 node test-relay.js             # one message to each agent, end to end
 node debug-acp.js              # dump raw ACP traffic
 ```
