@@ -261,6 +261,14 @@ async function waitPort(port, timeoutMs) {
   }
 }
 
+/** 端口上有没有人在听（同步查一次） */
+function portBusy(port) {
+  try {
+    const out = execSync('netstat -ano', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    return out.split('\n').some((l) => l.indexOf('127.0.0.1:' + port) >= 0 && l.indexOf('LISTENING') >= 0);
+  } catch (_) { return false; }
+}
+
 /* ---------- 输入处理 ---------- */
 
 function helpText() {
@@ -357,6 +365,15 @@ async function boot() {
     if (!CODEX_CLI) { log(`${a.name} 跳过：没有 Codex CLI 路径`); continue; }
     const lf = path.join(RELAY_ROOT, a.id + '-app.log');
     const px = a.proxy || '';
+    // ⚠️ 上次若是被强杀（任务管理器 / `taskkill /F`）退出的，app-server 子进程会活下来，
+    //    占着端口不放。它同时还握着会话的写入权 —— 会让 Codex 客户端报
+    //    「已在另一个应用中打开，请先在那边关闭会话」。所以起新的之前先把残留清掉。
+    if (portBusy(a.port)) {
+      log(`${a.name} 端口 ${a.port} 已被占用，先清掉上次留下的残留进程…`);
+      killByPort(a.port);
+      await new Promise((r) => setTimeout(r, 1000));
+      if (quitting) return;
+    }
     // ⚠️ codex 必须带代理，否则回合会一直卡在 inProgress
     const env = px
       ? `set "HTTPS_PROXY=${px}" && set "HTTP_PROXY=${px}" && set "ALL_PROXY=${px}" && `
