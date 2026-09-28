@@ -220,8 +220,17 @@ class WorkBuddyLink extends EventEmitter {
     const res = await this.rpc('session/load', { sessionId, cwd: cwd || undefined, mcpServers: [] });
     if (res.error) throw new Error('session/load 报错：' + JSON.stringify(res.error).slice(0, 200));
     const id = res.result && (res.result.sessionId || res.result.session_id);
-    this.sessionId = id || sessionId;
-    this.loadUnconfirmed = !id;
+    // ⚠️ 主机回的 result 里**没有 sessionId = 它没有真的接上这条会话**。
+    //
+    // 这里以前是「沿用请求的 id 接着发」，想着"反正只有这一条通路"。那是错的：
+    // 主机并不认这个 id，后续 prompt 会落到**主机自己当前那条会话**上 ——
+    // 如果 ACP 入口属于别的工作空间，内容就跑到别的项目里去了。
+    // （2026-09-28 用户实际遇到：入口是 word引用插件，消息也进了那个项目。）
+    // 所以必须当失败，让上层回退到 session/new(cwd) —— 宁可客户端里看不见，
+    // 也不能把内容发到别的地方。
+    if (!id) throw new Error('session/load 没有回执（主机没确认接上这条会话）');
+    this.sessionId = id;
+    this.loadUnconfirmed = false;
     this._absorbConfigOptions(res.events);
     return this.sessionId;
   }

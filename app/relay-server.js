@@ -232,15 +232,20 @@ class Relay extends EventEmitter {  constructor(opts) {
     if (borrow) {
       try {
         await link.loadSession(borrow, cwd);
-        this.emit('info', link.loadUnconfirmed
-          ? t('relay.borrowUnconfirmed', { name: def.name, session: borrow })
-          : t('relay.borrowed', { name: def.name, session: borrow }));
+        // loadSession 只会在**主机确认接上**时返回（没回执就抛错了），所以这里不用再分情况
+        this.emit('info', t('relay.borrowed', { name: def.name, session: borrow }));
         return link.sessionId;
       } catch (e) {
         this.emit('info', t('relay.borrowFailed', { session: borrow, msg: e.message }));
       }
     }
-    return link.newSession(cwd);
+    const newId = await link.newSession(cwd);
+    // 实测：cwd 相同时，session/new 可能把**那个目录已有的会话**还回来（就是客户端那条）。
+    // 这时日志别再说"新建了一条" —— 会让人以为跑到了另一条会话上。
+    if (borrow && newId === borrow) {
+      this.emit('info', t('relay.reusedSame', { name: def.name, session: newId }));
+    }
+    return newId;
   }
 
   /**
@@ -291,9 +296,14 @@ class Relay extends EventEmitter {  constructor(opts) {
       || ports[0];
 
     this._acpBase = 'http://127.0.0.1:' + pick;
+    this._acpCwd = hints[pick] || '';
     this.emit('info', t('relay.acpPick', { port: pick, cwd: hints[pick] || t('relay.acpUnknownCwd') }));
     if (!hints[pick] || isTemp(hints[pick])) {
       this.emit('info', t('relay.acpTempWarn'));
+    } else if (want && norm(hints[pick]) !== want) {
+      // 这个入口属于**别的工作空间**。后果有两个：客户端那条会话借不到，
+      // 而且 agent 是在它自己的目录里干活 —— 用户看到的就是"消息发到别的项目了"。
+      this.emit('info', t('relay.acpDirMismatch', { got: hints[pick], want: wantCwd }));
     }
     return this._acpBase;
   }

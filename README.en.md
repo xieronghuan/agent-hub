@@ -130,6 +130,13 @@ one on every launch:
 
 - **WorkBuddy** — attaches to the session its client is already using for that folder, so what the
   hub sends and receives shows up in your WorkBuddy window and can be continued there
+
+  ⚠️ But **which folder it works in is decided by the WorkBuddy client, not by the hub**: the ACP
+  endpoint follows whichever project you have open in WorkBuddy, and the workspace you pick on the
+  hub side cannot override that. To have it work in some folder, switch to that folder in the
+  WorkBuddy client first. If it is on a different one, the hub prints a warning saying which folder
+  the endpoint actually belongs to — in that case there is no session to attach to, so it can only
+  ask the host for a new one (which will not be listed in the client).
 - **Codex** — asks which thread was used last for that folder (`thread/list`) and reopens it
   (`thread/resume`), so the Codex client does not gain a new conversation every launch
 
