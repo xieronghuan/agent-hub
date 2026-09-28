@@ -123,10 +123,14 @@ class WorkBuddyLink extends EventEmitter {
   }
 
   /**
-   * 发一条 prompt 并流式接收正文。
-   * 实测结论：**正文就在 POST 的响应流里**，类型是 agent_message_chunk
-   * （之前误以为在 GET 订阅流，导致一直读到 0 字符）。
-   * 返回本轮累积的正文。
+   * 发一条 prompt 并接收正文。
+   *
+   * ⚠️ POST 的响应体是**整段会话记录**（实测 171KB，含几小时前的旧轮次），
+   * 不是只有这次的新内容。所以先收集，最后只取「最后一轮」的片段（见 extractTurn）。
+   *
+   * 代价：ACP 这条腿的正文是**整段一次性出现**，不再逐字流式。
+   * 换来的是不会再把旧会话内容刷到界面上 —— 宁可不流式，也不能显示错的。
+   * 返回本轮正文。
    */
   async prompt(text, onDelta) {
     if (!this.sessionId) throw new Error('还没有会话');
@@ -142,8 +146,8 @@ class WorkBuddyLink extends EventEmitter {
 
     const reader = r.body.getReader();
     const dec = new TextDecoder('utf-8');
+    const pieces = [];
     let buf = '';
-    let acc = '';
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -158,12 +162,19 @@ class WorkBuddyLink extends EventEmitter {
         let evt;
         try { evt = JSON.parse(d); } catch (_) { continue; }
         this.emit('event', evt);
-        const chunk = WorkBuddyLink.extractText(evt);
-        if (chunk) { acc += chunk; this.emit('delta', chunk, evt); if (onDelta) onDelta(chunk); }
+        const p = WorkBuddyLink.turnPiece(evt);
+        if (p) pieces.push(p);
       }
     }
-    this.emit('turnDone', { text: acc });
-    return { status: 200, text: acc };
+
+    const last = pieces.length ? pieces[pieces.length - 1].req : '';
+    const answer = pieces.filter((p) => p.req === last).map((p) => p.text).join('');
+    if (answer) {
+      this.emit('delta', answer);
+      if (onDelta) onDelta(answer);
+    }
+    this.emit('turnDone', { text: answer });
+    return { status: 200, text: answer };
   }
 
   /**
@@ -220,6 +231,43 @@ class WorkBuddyLink extends EventEmitter {
       return '';   // 思考过程不当作正文
     }
     return '';
+  }
+
+  /**
+   * 把一条 agent_message_chunk 拆成 { req, text }。
+   *
+   * req = _meta 里的 conversationRequestId。**同一轮问答的所有片段共享同一个 req**，
+   * 不同轮次各不相同 —— 这是把「这次的新回复」从「会话历史重放」里切出来的唯一依据。
+   */
+  static turnPiece(evt) {
+    const u = evt && evt.params && evt.params.update;
+    if (!u) return null;
+    if (u.sessionUpdate !== 'agent_message_chunk' && u.sessionUpdate !== 'agentMessageChunk') return null;
+    const text = (u.content && typeof u.content.text === 'string') ? u.content.text
+      : (typeof u.text === 'string' ? u.text : '');
+    if (!text) return null;
+    const meta = u._meta || {};
+    return { req: meta['codebuddy.ai/conversationRequestId'] || '', text };
+  }
+
+  /**
+   * 从整段 POST 响应体里取出「本次提问」的正文。
+   *
+   * ⚠️ 这个响应体是**整段会话记录**，不是只有这次的新内容：实测一次 171KB 的响应里，
+   * 前 58 个事件都是几小时前的旧轮次，最后才是本次回复。全当正文推给界面的结果就是
+   * 「刚问一句，先刷出一大段毫不相干的旧内容」。
+   *
+   * 做法：只认**最后一个 req**（本次请求的 id，在整段里是最新的那个），同 req 的片段拼起来。
+   */
+  static extractTurn(sseText) {
+    const pieces = [];
+    for (const evt of WorkBuddyLink.parseSse(sseText)) {
+      const p = WorkBuddyLink.turnPiece(evt);
+      if (p) pieces.push(p);
+    }
+    if (!pieces.length) return '';
+    const last = pieces[pieces.length - 1].req;
+    return pieces.filter((p) => p.req === last).map((p) => p.text).join('');
   }
 
   async disconnect() {
