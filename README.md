@@ -3,7 +3,9 @@
 > **把多个 AI agent 接到同一张桌子上。** 打开即用，关闭即停。
 > 终端风格界面 · Electron · Windows
 
-<!-- 截图待补：docs/screenshot.png（现有截图含本机路径，确认后再放） -->
+<p align="center">
+  <img src="docs/screenshot.png" alt="Agent Hub 主界面：顶栏各腿状态与工作空间下拉，底栏选目标发消息" width="860">
+</p>
 
 ---
 
@@ -87,7 +89,13 @@ Windows 上也可以直接双击仓库根目录的 **`启动AgentHub.cmd`**。
 
 > **环境变量 → `~/.agent-hub/config.json` → 自动探测 → 弹出「设置」窗口让你自己填**
 
-界面上点「**设置**」就是这个文件的图形入口。能改这些东西：
+界面上点「**设置**」就是这个文件的图形入口 —— 长这样：
+
+<p align="center">
+  <img src="docs/screenshot-settings.png" alt="Agent Hub 设置窗口：node / codex 路径、代理、端口，都带「选择…」和「自动检测并填入」" width="560">
+</p>
+
+能改这些东西：
 
 | 项 | 对应环境变量 | 说明 |
 |---|---|---|
