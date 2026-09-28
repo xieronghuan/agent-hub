@@ -29,8 +29,9 @@ const os = require('os');
 const net = require('net');
 
 const { Relay } = require('./relay-server');
-const { discoverPorts } = require('./discover');
+const { discoverPorts, portHints } = require('./discover');
 const cfg = require('./config');
+const wbHost = require('./wb-host');
 const i18n = require('./i18n');
 const t = i18n.t;
 
@@ -456,11 +457,68 @@ async function handleInput(text, to) {
   }
 }
 
+/** 客户端现在有没有开着这个目录的 ACP 入口 */
+function clientHasAcpFor(cwd) {
+  try {
+    const hints = portHints();
+    const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const want = norm(cwd);
+    return Object.keys(hints).some((k) => norm(hints[k]) === want);
+  } catch (_) { return false; }
+}
+
+/**
+ * 把某个 agent 自己的后端挪到新的工作目录。
+ *
+ * 后端的目录是**启动时**定的（`--settings` 的 trustedDirectories /
+ * mcp-config 的 CODEBUDDY_PROJECT_DIR），没有接口能改 —— 只能收掉旧的、
+ * 在新目录下起一个。这就是"软件里选哪个目录它就在哪执行"的落点。
+ */
+async function restartOwnHost(a, cwd) {
+  if (a._ownChild) {
+    try { spawn('taskkill', ['/PID', String(a._ownChild.pid), '/T', '/F'], { windowsHide: true }); } catch (_) {}
+    const i = kids.indexOf(a._ownChild);
+    if (i >= 0) kids.splice(i, 1);
+    a._ownChild = null;
+  }
+  delete a.base;
+  delete a.ownHost;
+  if (!cwd) return null;
+
+  // 客户端**正好开着**这个目录时，就接着用它的入口 —— 那条是客户端自己的会话，
+  // 稳，而且不依赖「CLI 登录过没有」。只有它没开这个目录（那才是用户抱怨的场景），
+  // 才需要我们自己在目标目录下起一个。
+  if (clientHasAcpFor(cwd)) {
+    log(t('boot.wbHostUseClient', { name: a.name || a.id, cwd }));
+    return null;
+  }
+
+  log(t('boot.wbHostStart', { name: a.name || a.id, cwd }));
+  let h = null;
+  try { h = await wbHost.launchHost({ cfg, cwd, proxy: proxyInfo.proxy, node: NODE }); } catch (_) { h = null; }
+  if (!h) {
+    // 起不来就退回老路（中继去找客户端的入口），日志里说清楚，不假装成功
+    log(t('boot.wbHostFailed', { name: a.name || a.id }));
+    return null;
+  }
+  a.base = h.base;
+  a.ownHost = true;
+  a._ownChild = h.child;
+  kids.push(h.child);              // 退出时 killKids 会一并收掉
+  log(t('boot.wbHostReady', { name: a.name || a.id, base: h.base, cwd }));
+  return h.base;
+}
+
 /** Point one agent at a different workspace */
 async function applyWs(agentId, p) {
   wsOf[agentId] = p;
   try { fs.writeFileSync(WS_FILE, p, 'utf8'); } catch (_) {}
   log(t('ws.switched', { id: agentId, path: p }));
+
+  // WorkBuddy 那条腿：后端得跟着搬到新目录（它的目录改不了，只能重起）
+  const ag = AGENTS.find((x) => x.id === agentId);
+  if (ag && ag.kind === 'acp' && relay && relay.started) await restartOwnHost(ag, p);
+
   if (relay && relay.started) {
     try { await relay.switchWs(agentId, p); } catch (e) { log(t('cmd.switchFailed', { msg: e.message })); }
   }
@@ -540,6 +598,18 @@ async function boot() {
     log(up
       ? t('boot.serverReady', { name: a.name, port: a.port })
       : t('boot.serverTimeout', { name: a.name, port: a.port }));
+  }
+
+  // 1.5) WorkBuddy 那条腿：在**用户给它选的工作空间**下，自己起一个后端。
+  //
+  // 为什么不借客户端现成的那个：后端干活的目录是**启动时**定下来的
+  // （`--settings` 里的 trustedDirectories、mcp-config 里的 CODEBUDDY_PROJECT_DIR），
+  // `session/new` 的 cwd 参数它不认（实测）。客户端起的那些后端，目录跟着
+  // 「客户端打开的项目」走，中继里选的目录它根本不看。自己起 —— 在哪个目录起就在哪干活。
+  for (const a of AGENTS) {
+    if (a.enabled === false || a.kind !== 'acp') continue;
+    await restartOwnHost(a, wsOf[a.id] || def);
+    if (quitting) return;
   }
 
   // 2) Discover ACP ports (WorkBuddy and friends change port on every start)

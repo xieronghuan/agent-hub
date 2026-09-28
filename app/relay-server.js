@@ -228,7 +228,9 @@ class Relay extends EventEmitter {  constructor(opts) {
    * 优先**借用客户端已经在这个目录用的那条会话**，借用不成再新建。
    */
   async _openSession(link, def, cwd) {
-    const borrow = this.borrowClientSession ? wbSessions.findSessionFor(cwd) : '';
+    // 用自己起的后端时**不借用**客户端的会话 —— 那条属于客户端的后端，接不上
+    const canBorrow = !def.ownHost && this.borrowClientSession;
+    const borrow = canBorrow ? wbSessions.findSessionFor(cwd) : '';
     if (borrow) {
       try {
         await link.loadSession(borrow, cwd);
@@ -239,11 +241,35 @@ class Relay extends EventEmitter {  constructor(opts) {
         this.emit('info', t('relay.borrowFailed', { session: borrow, msg: e.message }));
       }
     }
-    const newId = await link.newSession(cwd);
+    // 自己起的后端**刚起来时账号态还没加载完**，这时候 session/new 会报
+    // Authentication required。实测要等约 90 秒 —— 所以这里重试，别把
+    // 「还没就绪」当成「起不来」（我第一版就是这么误判的）。
+    let newId = '';
+    for (let attempt = 0; ; attempt++) {
+      try { newId = await link.newSession(cwd); break; } catch (e) {
+        const warmup = /Authentication|auth/i.test(String(e.message || ''));
+        if (!warmup || attempt >= 9) throw e;
+        this.emit('info', t('relay.hostWarmingUp', { name: def.name, sec: 15 * (attempt + 1) }));
+        await new Promise((r) => setTimeout(r, 15000));
+      }
+    }
+
     // 实测：cwd 相同时，session/new 可能把**那个目录已有的会话**还回来（就是客户端那条）。
     // 这时日志别再说"新建了一条" —— 会让人以为跑到了另一条会话上。
     if (borrow && newId === borrow) {
       this.emit('info', t('relay.reusedSame', { name: def.name, session: newId }));
+    }
+
+    // ⭐ 自己起的后端建的会话，必须登记进客户端列表 —— 客户端只显示那张表里的会话，
+    //    而只有客户端起的后端才会写它（实测：自己起的后端 session/new 后表里一行没多）。
+    if (def.ownHost && wbSessions.registerSession) {
+      const reg = wbSessions.registerSession({
+        id: newId, cwd, title: t('relay.sessionTitle', { name: def.name }),
+        model: (def.model || ''),
+      });
+      this.emit('info', reg.ok
+        ? t('relay.registered', { name: def.name, session: newId })
+        : t('relay.registerFailed', { name: def.name, msg: reg.error }));
     }
     return newId;
   }
@@ -448,7 +474,8 @@ class Relay extends EventEmitter {  constructor(opts) {
         try { old.removeAllListeners('close'); } catch (_) {}
         try { old.disconnect(); } catch (_) {}
       }
-      const base = leg.base || await this._discoverAcp(cwd);
+      // def.base 优先：那是 main.js 刚给这个工作空间起的后端，比旧的 leg.base 新
+      const base = leg.def.base || leg.base || await this._discoverAcp(cwd);
       const link = this._makeLink(Object.assign({}, leg.def, { base }));
       await link.connect();
       await link.init();
