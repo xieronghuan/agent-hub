@@ -215,6 +215,12 @@ function setStatus(text, statuses) {
 
 function log(msg) { push({ who: 'sys', text: msg }); }
 
+/** Display name for an agent id */
+function nameOf(id) {
+  const a = AGENTS.find((x) => x.id === id);
+  return a ? (a.name || a.id) : id;
+}
+
 /** Push the agent list, the workspace list and each agent's status to the UI */
 function pushWsList() {
   if (!win || win.isDestroyed()) return;
@@ -433,7 +439,7 @@ async function boot() {
   relay.on('info', (m) => log(m));
   relay.on('delta', ({ from, text }) => push({ who: from, text }));
   relay.on('reasoning', ({ text }) => push({ who: 'sys', text: '· ' + text }));
-  relay.on('turnDone', ({ from }) => log(`[${from}] —`));
+  relay.on('turnDone', ({ from }) => log(t('turn.done', { name: nameOf(from) })));
   relay.on('status', (s) => refreshStatus(s));
 
   try {

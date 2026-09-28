@@ -98,6 +98,7 @@ const DICT = {
     'status.starting': '启动中…',
     'status.connected': '{ready}/{total} 已连接',
     'status.relayFailed': '中继失败',
+    'turn.done': '{name} 本轮结束',
 
     'proc.exited': '{tag} 退出 code={code}',
     'proc.cleanup': '兜底清理监听进程 pid={pid}',
@@ -232,6 +233,7 @@ const DICT = {
     'status.starting': 'Starting…',
     'status.connected': '{ready}/{total} connected',
     'status.relayFailed': 'Relay failed',
+    'turn.done': '{name} finished its turn',
 
     'proc.exited': '{tag} exited with code={code}',
     'proc.cleanup': 'Cleaning up leftover listener, pid={pid}',
