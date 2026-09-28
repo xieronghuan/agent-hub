@@ -182,7 +182,13 @@
     return a ? a.name : id;
   }
 
+  /* 流式正文：同一条腿连续推来的小片段要**接在同一行**。
+     不接的话，Codex 按字符推 delta 会渲染成「一行一个字」（2026-09-28 用户报的）。 */
+  let stream = null;                         // { who, stamp, label, span, text }
+  function closeStream() { stream = null; }
+
   function line(who, text, ts) {
+    closeStream();                           // 非流式的一行，先把上一段流断开
     const span = document.createElement('span');
     if (who === 'user') span.className = 'us';
     else if (who === 'error') span.className = 'er';
@@ -195,6 +201,27 @@
     out.appendChild(span);
     out.scrollTop = out.scrollHeight;
   }
+
+  /** 流式片段：还是同一条腿就追加到当前行，换人或中间插了别的行就新起一行 */
+  function deltaLine(who, text, ts) {
+    if (stream && stream.who === who) {
+      stream.text += text;
+      stream.span.textContent = '[' + stream.stamp + '] ' + stream.label + ' ' + stream.text + '\n';
+      out.scrollTop = out.scrollHeight;
+      return;
+    }
+    const s = stamp(ts);
+    const label = nameOf(who);
+    const span = document.createElement('span');
+    span.className = 'a-' + who;
+    span.textContent = '[' + s + '] ' + label + ' ' + text + '\n';
+    out.appendChild(span);
+    out.scrollTop = out.scrollHeight;
+    stream = { who: who, stamp: s, label: label, span: span, text: text };
+  }
+
+  /** 这些 who 是「整行」输出，其余（agent id）都是流式正文片段 */
+  const PLAIN_WHO = { sys: 1, user: 1, ws: 1, error: 1 };
 
   function setStatus(s) { statusEl.textContent = s; }
 
@@ -211,8 +238,10 @@
 
   if (window.term) {
     window.term.onLine(function (e) {
-      if (e.who === 'clear') { out.textContent = ''; return; }
-      line(e.who || 'sys', e.text, e.ts);
+      const who = e.who || 'sys';
+      if (who === 'clear') { out.textContent = ''; closeStream(); return; }
+      if (PLAIN_WHO[who]) line(who, e.text, e.ts);
+      else deltaLine(who, e.text, e.ts);
     });
     window.term.onStatus(function (s) { setStatus(s.text); applyStatuses(s.statuses); });
     window.term.onWsList(function (d) {
