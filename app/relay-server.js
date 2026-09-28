@@ -122,6 +122,11 @@ class Relay extends EventEmitter {  constructor(opts) {
         await link.startEvents();
         const sid = await this._openSession(link, def, cwd);
         this.emit('info', t('relay.readyAcp', { name: def.name, base, session: sid, cwd }));
+        const m = link.currentModel && link.currentModel();
+        if (m) {
+          leg.model = m.value;
+          this.emit('info', t('relay.modelNow', { name: def.name, model: m.label }));
+        }
       } else {
         throw new Error(t('relay.unsupportedKind', { kind: def.kind }));
       }
@@ -265,6 +270,26 @@ class Relay extends EventEmitter {  constructor(opts) {
       this.emit('info', t('relay.acpTempWarn'));
     }
     return this._acpBase;
+  }
+
+  /** 当前各 agent 的模型（ACP 腿才有；Codex 腿留空） */
+  modelInfo() {
+    const out = {};
+    for (const [id, l] of this.legs) {
+      if (l.def.kind !== 'acp' || !l.link || !l.link.currentModel) continue;
+      const m = l.link.currentModel();
+      if (m) out[id] = { value: m.value, label: m.label, choices: l.link.modelChoices() };
+    }
+    return out;
+  }
+
+  /** 改某个 agent 的会话设置（如换模型），成功返回新值 */
+  async setConfig(agentId, configId, value) {
+    const leg = this.legs.get(agentId);
+    if (!leg || !leg.link || !leg.link.setConfigOption) return null;
+    const m = await leg.link.setConfigOption(configId, value);
+    this.emit('info', t('relay.modelChanged', { name: leg.def.name, model: m.label }));
+    return m;
   }
 
   /* ---------- 发 ---------- */

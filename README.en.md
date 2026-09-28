@@ -52,6 +52,13 @@ file. No docs needed.
 The interface is bilingual: it follows your system language, and you can pin it to Chinese or
 English in Settings.
 
+## Which model is it using
+
+Next to the WorkBuddy name in the top bar there's a model dropdown — it shows the model currently
+in use and lets you switch on the fly (the same 20 options the WorkBuddy client offers: Fast /
+Balanced / Max / GLM / Kimi / Deepseek…). It takes effect immediately, no restart. Codex doesn't
+expose this yet.
+
 ## Usage
 
 Pick who you're sending to from the dropdown at the bottom left, type, and press Enter. Choose

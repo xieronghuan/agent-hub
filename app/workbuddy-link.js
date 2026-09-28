@@ -31,6 +31,9 @@ class WorkBuddyLink extends EventEmitter {
     this.nextId = 1;
     this.ready = false;
     this._sseAbort = null;
+    // 会话设置（模型 / 思考等级 / 权限模式…），来自 ACP 的 config_option_update 事件。
+    // 每项形如 { id, name, currentValue, options:[{value,name}] }
+    this.configOptions = [];
   }
 
   headers() {
@@ -102,6 +105,55 @@ class WorkBuddyLink extends EventEmitter {
     return out;
   }
 
+  /* ---------- 会话设置（模型等） ---------- */
+
+  /** 从一批事件里抽出 config_option_update 携带的设置列表 */
+  static parseConfigOptions(events) {
+    let out = null;
+    for (const evt of events || []) {
+      const u = (evt && evt.params && evt.params.update) || {};
+      if (u.sessionUpdate !== 'config_option_update') continue;
+      out = Array.isArray(u.configOptions) ? u.configOptions : (out || []);
+    }
+    return out;
+  }
+
+  /** 收到设置变更事件就更新缓存（开新会话、切会话、改设置都会带这个事件） */
+  _absorbConfigOptions(events) {
+    const o = WorkBuddyLink.parseConfigOptions(events);
+    if (o) this.configOptions = o;
+  }
+
+  /** 当前设置项，如 currentModel('model') → { value, label }；找不到返回 null */
+  configValue(configId) {
+    const o = (this.configOptions || []).find((c) => c.id === configId);
+    if (!o) return null;
+    const opt = (o.options || []).find((x) => x.value === o.currentValue);
+    return { value: o.currentValue, label: (opt && opt.name) || o.currentValue };
+  }
+
+  /** 当前用的模型，如 { value:'deepseek-v4.1-flash', label:'Deepseek V4.1 Flash' } */
+  currentModel() { return this.configValue('model'); }
+
+  /** 可选的模型列表 [{ value, name }] */
+  modelChoices() {
+    const o = (this.configOptions || []).find((c) => c.id === 'model');
+    return o && Array.isArray(o.options) ? o.options : [];
+  }
+
+  /**
+   * 改一个会话设置（如 model / thought_level）。实测可用的方法是
+   * session/set_config_option —— session/setConfigOption、set_option 都不存在。
+   * 成功后主机回推 config_option_update，缓存随之更新。
+   */
+  async setConfigOption(configId, value) {
+    if (!this.sessionId) throw new Error('还没有会话');
+    const res = await this.rpc('session/set_config_option', { sessionId: this.sessionId, configId, value });
+    this._absorbConfigOptions(res.events);
+    if (res.error) throw new Error('set_config_option 报错：' + JSON.stringify(res.error).slice(0, 200));
+    return this.configValue(configId);
+  }
+
   /* ---------- 会话 ---------- */
 
   async newSession(cwd) {
@@ -112,6 +164,7 @@ class WorkBuddyLink extends EventEmitter {
     const id = res.result && (res.result.sessionId || res.result.session_id);
     if (!id) throw new Error('session/new 未返回 sessionId：' + JSON.stringify(res.result || res.error));
     this.sessionId = id;
+    this._absorbConfigOptions(res.events);
     return id;
   }
 
@@ -129,6 +182,7 @@ class WorkBuddyLink extends EventEmitter {
     const id = res.result && (res.result.sessionId || res.result.session_id);
     this.sessionId = id || sessionId;
     this.loadUnconfirmed = !id;
+    this._absorbConfigOptions(res.events);
     return this.sessionId;
   }
 
@@ -172,6 +226,7 @@ class WorkBuddyLink extends EventEmitter {
         let evt;
         try { evt = JSON.parse(d); } catch (_) { continue; }
         this.emit('event', evt);
+        this._absorbConfigOptions([evt]);
         const p = WorkBuddyLink.turnPiece(evt);
         if (p) pieces.push(p);
       }
@@ -211,10 +266,11 @@ class WorkBuddyLink extends EventEmitter {
             if (!t.startsWith('data:')) continue;
             const d = t.slice(5).trim();
             if (!d) continue;
-            let evt;
-            try { evt = JSON.parse(d); } catch (_) { continue; }
-            this.emit('event', evt);
-            // ⚠️ 这里**不** emit delta：订阅流会把会话里的历史消息一并推来
+        let evt;
+        try { evt = JSON.parse(d); } catch (_) { continue; }
+        this.emit('event', evt);
+        this._absorbConfigOptions([evt]);
+        // ⚠️ 这里**不** emit delta：订阅流会把会话里的历史消息一并推来
             //    （包括 WorkBuddy 自己的回复），当成正文会让界面刷屏。
             //    正文只从 prompt() 的响应流里取。
           }

@@ -35,6 +35,7 @@ const DICT = {
     'ui.clearFailed': '清空留档失败：{msg}',
     'ui.userLabel': '我',
     'ui.wsTitle': '{name} 的工作空间',
+    'ui.modelTitle': '{name} 用的模型',
     'ui.dotTitle': '{name}：{status}',
 
     /* ---- settings window ---- */
@@ -148,6 +149,9 @@ const DICT = {
     'relay.started': '中继启动，接了 {n} 个 agent：{names}',
     'relay.readyServer': '{name} 就绪（thread={thread}  cwd={cwd}）',
     'relay.readyAcp': '{name} 就绪（{base}  session={session}  cwd={cwd}）',
+    'relay.modelNow': '{name} 当前模型：{model}',
+    'relay.modelChanged': '{name} 已换用模型：{model}',
+    'relay.modelFailed': '换模型失败：{msg}',
     'relay.borrowed': '{name} 接入了客户端已有的会话：{session}',
     'relay.borrowUnconfirmed': '{name} 试着接入客户端已有的会话 {session}（主机没回执，**是否真接上未确认**）',
     'relay.borrowFailed': '借用会话 {session} 失败（{msg}），改用新建',
@@ -196,6 +200,7 @@ const DICT = {
     'ui.clearFailed': 'Could not clear the archive: {msg}',
     'ui.userLabel': 'you',
     'ui.wsTitle': '{name} workspace',
+    'ui.modelTitle': 'Model used by {name}',
     'ui.dotTitle': '{name}: {status}',
 
     /* ---- settings window ---- */
@@ -309,6 +314,9 @@ const DICT = {
     'relay.started': 'Relay started with {n} agents: {names}',
     'relay.readyServer': '{name} ready (thread={thread}  cwd={cwd})',
     'relay.readyAcp': '{name} ready ({base}  session={session}  cwd={cwd})',
+    'relay.modelNow': '{name} current model: {model}',
+    'relay.modelChanged': '{name} switched to model: {model}',
+    'relay.modelFailed': 'Switching model failed: {msg}',
     'relay.borrowed': '{name} attached to the session the client already shows: {session}',
     'relay.borrowUnconfirmed': '{name} tried to attach to the client session {session} (the host sent no receipt — **unconfirmed**)',
     'relay.borrowFailed': 'Could not attach to session {session} ({msg}); opening a new one instead',

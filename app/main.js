@@ -234,7 +234,9 @@ function pushWsList() {
     id: a.id, name: a.name || a.id, color: a.color || '', cwd: wsOf[a.id] || '',
   }));
   const statuses = relay ? relay.status() : {};
-  try { win.webContents.send('term-wslist', { agents, list: workspaces, statuses }); } catch (_) {}
+  // ACP 腿把当前模型和可选项一起带给界面（Codex 腿没有这个信息，界面上就不显示下拉）
+  const models = relay && relay.modelInfo ? relay.modelInfo() : {};
+  try { win.webContents.send('term-wslist', { agents, list: workspaces, statuses, models }); } catch (_) {}
 }
 
 /** The status bar only reports how many are connected; details are the lights */
@@ -604,6 +606,17 @@ ipcMain.on('term-send', (_e, payload) => {
 ipcMain.on('term-selectws', async (_e, d) => {
   if (!d || d.side === undefined || d.side === null || !d.path) return;
   await applyWs(d.side, d.path);
+});
+
+/** 换某个 agent 的模型（ACP 腿）；成功后模型信息会随下一次 pushWsList 刷新 */
+ipcMain.on('term-setmodel', async (_e, d) => {
+  if (!d || !d.side || !d.value) return;
+  try {
+    await relay.setConfig(d.side, 'model', d.value);
+  } catch (e) {
+    log(t('relay.modelFailed', { msg: e.message }));
+  }
+  pushWsList();
 });
 
 /** Clear the archive (relay.jsonl) — asks first, cannot be undone */
