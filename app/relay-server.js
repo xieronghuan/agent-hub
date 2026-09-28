@@ -362,7 +362,21 @@ class Relay extends EventEmitter {  constructor(opts) {
       }
       // ACP：注入的正文和用户自己打的字长得一模一样，必须加标记才分得出来
       const marked = this.markInbound ? mark + body : body;
-      const r = await leg.link.prompt(head + marked);
+      // prompt() 要等整轮答完才返回，中间可能是几分钟的空屏。不给提示的话
+      // 界面看起来就跟死了一样 —— 2026-09-28 用户就是这么以为的，等了 44 秒
+      // 没见动静就关了程序（那条回复也就没落地）。
+      const who = leg.def.name || leg.def.id;
+      this.emit('info', t('relay.generating', { name: who }));
+      const t0 = Date.now();
+      const tick = setInterval(() => {
+        this.emit('info', t('relay.stillGenerating', { name: who, sec: Math.round((Date.now() - t0) / 1000) }));
+      }, 60000);
+      let r;
+      try {
+        r = await leg.link.prompt(head + marked);
+      } finally {
+        clearInterval(tick);
+      }
       return { ok: true, text: r.text };
     } catch (e) {
       return { ok: false, error: e.message };

@@ -388,9 +388,18 @@ async function handleInput(text, to) {
     }
   }
 
-  for (const a of targets) {
-    const r = await relay.send(a.id, text);
-    if (!r.ok) log(t('cmd.sendFailedTo', { name: a.name || a.id, msg: r.error }));
+  // Fan out in parallel on purpose. The ACP leg's send() only returns once the
+  // whole answer is in, so a serial loop lets a slow agent hold up the rest:
+  // sending to "Everyone" meant Codex never even received the message while
+  // WorkBuddy was still thinking (seen live 2026-09-28).
+  const results = await Promise.all(targets.map(async (a) => {
+    try { return { a, r: await relay.send(a.id, text) }; }
+    catch (e) { return { a, r: { ok: false, error: e.message } }; }
+  }));
+  for (const { a, r } of results) {
+    if (!r || r.ok === false) {
+      log(t('cmd.sendFailedTo', { name: a.name || a.id, msg: (r && r.error) || '?' }));
+    }
   }
 }
 
