@@ -1,18 +1,24 @@
 'use strict';
 /**
- * Agent Hub —— Electron 主进程（**配置驱动，支持 N 个 agent**）
+ * Agent Hub — Electron main process (config-driven, supports N agents).
  *
- * 把多个 AI agent 接到同一张桌子上：对等中继，谁也不指挥谁。
+ * Several AI agents share one window. The architecture is peer-to-peer: every
+ * agent keeps its own long-lived connection, none of them know the others exist,
+ * and all routing lives in the relay.
  *
- * ★ 要接新 agent：改 `~/.agent-hub/config.json` 的 `agents`（或 app/agents.js），
- *   本文件不用动。
+ * To add an agent, edit the `agents` array in ~/.agent-hub/config.json (or
+ * app/agents.js) — this file does not need to change.
  *
- * 生命周期：
- *   打开窗口 → 起各 agent 自带的 app-server（如有）→ 起对等中继 → 界面显示
- *   关闭窗口 → 杀掉全部子进程 + 按端口兜底清理 → 退出
+ * Lifecycle:
+ *   open the window → start each agent's own app-server (if it has one) →
+ *   start the relay → show state. Closing the window kills every child process
+ *   and sweeps the listening ports before quitting.
  *
- * ★ 本机差异（路径、代理）一律不写死，统一走 app/config.js：
- *     环境变量 → ~/.agent-hub/config.json → 自动探测 → 弹「设置」让用户自己填
+ * Machine-specific values (paths, proxy) are never hardcoded. They all resolve
+ * through app/config.js:
+ *   env var → ~/.agent-hub/config.json → auto-detect → ask the user in Settings
+ *
+ * Every string a user can see lives in app/i18n.js.
  */
 
 const { app, BrowserWindow, Menu, shell, ipcMain, dialog } = require('electron');
@@ -25,9 +31,12 @@ const net = require('net');
 const { Relay } = require('./relay-server');
 const { discoverPorts } = require('./discover');
 const cfg = require('./config');
+const i18n = require('./i18n');
+const t = i18n.t;
 
 const HERE = __dirname;
-// 打包成 exe 后 HERE 位于 asar 内（只读），日志与配置必须改放用户目录
+// Once packaged, HERE sits inside the asar (read-only), so logs and config have
+// to go to the user's home directory instead.
 const RELAY_ROOT = app.isPackaged ? cfg.HOME_DIR : path.join(HERE, '..');
 try { fs.mkdirSync(RELAY_ROOT, { recursive: true }); } catch (_) {}
 const LOG_FILE = path.join(RELAY_ROOT, 'relay.log');
@@ -35,9 +44,9 @@ const ARCHIVE_FILE = path.join(RELAY_ROOT, 'relay.jsonl');
 const WS_FILE = path.join(RELAY_ROOT, '.workspace');
 const WB_SESSIONS = path.join(os.homedir(), '.workbuddy', 'sessions');
 
-/* ---------- 环境定位：环境变量 → 配置 → 自动探测 → 空（交给用户填） ---------- */
+/* ---------- Locating things: env var → config → auto-detect → ask the user ---------- */
 
-/** 自动找 node：优先 WorkBuddy 自带的，其次 PATH */
+/** node.exe: prefer the copy bundled with WorkBuddy, then whatever is on PATH */
 function autoNode() {
   const base = path.join(os.homedir(), '.workbuddy', 'binaries', 'node', 'versions');
   try {
@@ -61,7 +70,7 @@ function findNode() {
   return autoNode();
 }
 
-/** 自动找 codex CLI（安装目录带 hash，不能写死） */
+/** codex.exe lives under a hashed directory, so it can never be hardcoded */
 function autoCodexCli() {
   const base = path.join(os.homedir(), 'AppData', 'Local', 'OpenAI', 'Codex', 'bin');
   try {
@@ -80,9 +89,10 @@ function findCodexCli() {
   return autoCodexCli();
 }
 
-/* 代理：环境变量 → 配置 → 探测本机常见代理端口 → 不带代理
-   为什么要有这一步：在中国大陆访问 Codex 通常要代理，但**端口每台机器都不一样**，
-   以前写死了 127.0.0.1:7897（某一台机器的 Clash 端口），换个电脑就废。 */
+/* Proxy: env var → config → probe common local ports → no proxy.
+   Reaching Codex from mainland China usually needs one, but the port differs on
+   every machine — the old code hardcoded 127.0.0.1:7897, which is one specific
+   machine's Clash port and breaks everywhere else. */
 const PROXY_PORTS = [7897, 7890, 10809, 10808, 1080, 8889, 2080];
 
 function isPortOpen(port) {
@@ -99,16 +109,29 @@ function isPortOpen(port) {
 }
 
 async function resolveProxy() {
-  if (process.env.RELAY_PROXY) return { proxy: process.env.RELAY_PROXY, src: '环境变量 RELAY_PROXY' };
+  if (process.env.RELAY_PROXY) return { proxy: process.env.RELAY_PROXY, src: t('proxy.srcEnv') };
   const c = String(cfg.get('proxy') || '').trim();
-  if (c) return { proxy: c, src: '配置文件' };
+  if (c) return { proxy: c, src: t('proxy.srcConfig') };
   for (const p of PROXY_PORTS) {
-    if (await isPortOpen(p)) return { proxy: 'http://127.0.0.1:' + p, src: '自动探测' };
+    if (await isPortOpen(p)) return { proxy: 'http://127.0.0.1:' + p, src: t('proxy.srcAuto') };
   }
-  return { proxy: '', src: '无（未使用代理）' };
+  return { proxy: '', src: t('proxy.srcNone') };
 }
 
-/** 临时目录 / 宿主目录都不是工作空间 —— 注意 `\Temp` 结尾没有斜杠也要算 */
+/** env var → config → follow the OS locale */
+function pickLang() {
+  const env = String(process.env.RELAY_LANG || '').toLowerCase();
+  if (env === 'zh' || env === 'en') return env;
+  const pref = String(cfg.get('uiLang') || 'auto').toLowerCase();
+  if (pref === 'zh' || pref === 'en') return pref;
+  try {
+    return String(app.getLocale() || '').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  } catch (_) {
+    return 'zh';
+  }
+}
+
+/** Temp directories are never workspaces. Note `\Temp` without a trailing slash counts too. */
 function isTempPath(p) {
   return /[\\/](Temp|tmp|__workbuddy_cli_host__)([\\/]|$)/i.test(String(p || ''));
 }
@@ -120,13 +143,14 @@ function loadAgents() {
 }
 loadAgents();
 
-// 源码版默认工作空间 = 仓库根（app 的上一级）；打包版没有「仓库」概念，用用户主目录兜底
+// Running from source: default workspace is the repo root (one level above app/).
+// Packaged there is no repo, so fall back to the home directory.
 const PROJECT_ROOT = app.isPackaged ? os.homedir() : path.resolve(HERE, '..');
 const NODE = findNode();
 const CODEX_CLI = findCodexCli();
 const CWD = process.env.WB_CWD || PROJECT_ROOT;
 
-/* ---------- 工作空间 ---------- */
+/* ---------- Workspaces ---------- */
 
 function listWorkspaces() {
   const map = new Map();
@@ -163,18 +187,18 @@ function loadSavedWs() {
   return real || os.homedir();
 }
 
-/* ---------- 状态 ---------- */
+/* ---------- State ---------- */
 
 let win = null;
 let settingsWin = null;
 const kids = [];
-const wsOf = {};                 // agentId → 该 agent 的工作空间（每个可不同）
+const wsOf = {};                 // agentId → that agent's workspace (they can differ)
 let quitting = false;
 let relay = null;
 let acpPorts = [];
 let proxyInfo = { proxy: '', src: '' };
 
-/* ---------- 往界面推 ---------- */
+/* ---------- Pushing to the UI ---------- */
 
 function push(e) {
   if (win && !win.isDestroyed()) {
@@ -191,7 +215,7 @@ function setStatus(text, statuses) {
 
 function log(msg) { push({ who: 'sys', text: msg }); }
 
-/** 把 agent 清单 + 工作空间列表 + 各 agent 状态推给界面 */
+/** Push the agent list, the workspace list and each agent's status to the UI */
 function pushWsList() {
   if (!win || win.isDestroyed()) return;
   const agents = AGENTS.filter((a) => a.enabled !== false).map((a) => ({
@@ -201,26 +225,26 @@ function pushWsList() {
   try { win.webContents.send('term-wslist', { agents, list: workspaces, statuses }); } catch (_) {}
 }
 
-/** 状态栏只报「连上了几个」，不堆细节（细节看灯） */
+/** The status bar only reports how many are connected; details are the lights */
 function refreshStatus(list) {
   const st = list || (relay ? relay.status() : {});
   const ids = Object.keys(st);
   const ready = ids.filter((k) => st[k] === 'ready').length;
-  setStatus(ids.length ? `${ready}/${ids.length} 已连接` : '启动中…', st);
+  setStatus(ids.length ? t('status.connected', { ready, total: ids.length }) : t('status.starting'), st);
 }
 
-/* ---------- 进程管理 ---------- */
+/* ---------- Process management ---------- */
 
 function spawnRaw(cmdline, tag) {
   const child = spawn(cmdline, [], { cwd: CWD, windowsHide: true, shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
   kids.push(child);
   if (child.stdout) child.stdout.on('data', (d) => log(`[${tag}] ` + String(d).trimEnd()));
   if (child.stderr) child.stderr.on('data', (d) => log(`[${tag}!] ` + String(d).trimEnd()));
-  child.on('exit', (c) => log(`${tag} 退出 code=${c}`));
+  child.on('exit', (c) => log(t('proc.exited', { tag, code: c })));
   return child;
 }
 
-/** 按端口反查监听进程并杀 —— 服务可能 daemon 化，脱离 spawn 的进程树 */
+/** Kill whatever is listening on a port — a service may have daemonised and left the spawn tree */
 function killByPort(port) {
   if (process.platform !== 'win32') return;
   try {
@@ -229,7 +253,7 @@ function killByPort(port) {
       if (line.indexOf('127.0.0.1:' + port) < 0 || line.indexOf('LISTENING') < 0) continue;
       const pid = line.trim().split(/\s+/).pop();
       if (pid && /^\d+$/.test(pid)) {
-        push({ who: 'sys', text: '兜底清理监听进程 pid=' + pid });
+        push({ who: 'sys', text: t('proc.cleanup', { pid }) });
         spawn('taskkill', ['/PID', pid, '/T', '/F'], { windowsHide: true });
       }
     }
@@ -244,7 +268,7 @@ function killKids() {
     } catch (_) {}
   }
   kids.length = 0;
-  // 各 agent 自带的监听端口也要带走
+  // Take down the listening ports the agents opened as well
   for (const a of AGENTS) if (a.port) killByPort(a.port);
   killByPort(Number(process.env.WB_PORT || 8788));
 }
@@ -261,7 +285,7 @@ async function waitPort(port, timeoutMs) {
   }
 }
 
-/** 端口上有没有人在听（同步查一次） */
+/** Is anything listening on this port right now? */
 function portBusy(port) {
   try {
     const out = execSync('netstat -ano', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
@@ -269,18 +293,18 @@ function portBusy(port) {
   } catch (_) { return false; }
 }
 
-/* ---------- 输入处理 ---------- */
+/* ---------- Input handling ---------- */
 
 function helpText() {
   return [
-    '用法：底栏选「发给谁」+ 输入回车即可。以下是可选命令：',
-    '  /ws            列出工作空间',
-    '  /ws <编号|路径> 切换当前默认目标的工作空间',
-    '  /t <agentId>   切换底栏默认目标',
-    '  /status        看各 agent 状态',
-    '  /clear         清屏',
-    '  /help          看这条',
-    '界面右上角的「设置」「清空留档」是按钮，点就行。',
+    t('help.intro'),
+    t('help.ws'),
+    t('help.wsSwitch'),
+    t('help.target'),
+    t('help.status'),
+    t('help.clear'),
+    t('help.help'),
+    t('help.buttons', { settings: t('ui.settings'), clear: t('ui.clearHistory') }),
   ].join('\n');
 }
 
@@ -292,55 +316,58 @@ async function handleInput(text, to) {
   if (text === '/help') { log(helpText()); return; }
   if (text === '/clear') { push({ who: 'clear' }); return; }
   if (text === '/status') {
-    log('各 agent 状态：' + JSON.stringify(relay ? relay.status() : {}));
-    log('工作空间：' + JSON.stringify(wsOf));
+    log(t('boot.status', { json: JSON.stringify(relay ? relay.status() : {}) }));
+    log(t('cmd.workspaces', { json: JSON.stringify(wsOf) }));
     return;
   }
   if (text === '/ws' || text.startsWith('/ws ')) {
     const a = text.slice(3).trim();
-    if (!a) { log('工作空间：'); workspaces.forEach((w, i) => log(`  ${i + 1}. ${w}`)); return; }
+    if (!a) { log(t('cmd.workspaceList')); workspaces.forEach((w, i) => log(`  ${i + 1}. ${w}`)); return; }
     const n = Number(a);
     const pick = (Number.isInteger(n) && n >= 1 && n <= workspaces.length) ? workspaces[n - 1] : a;
-    if (!fs.existsSync(pick)) { log('路径不存在：' + pick); return; }
+    if (!fs.existsSync(pick)) { log(t('cmd.pathMissing', { path: pick })); return; }
     await applyWs(targetOf() || (AGENTS[0] && AGENTS[0].id), pick);
     return;
   }
   if (text === '/t' || text.startsWith('/t ')) {
     const a = text.slice(2).trim();
-    if (AGENTS.some((x) => x.id === a)) { setTarget(a); log('默认目标 → ' + a); pushWsList(); }
-    else log('可选：' + AGENTS.map((x) => x.id).join(' / '));
+    if (AGENTS.some((x) => x.id === a)) { setTarget(a); log(t('cmd.targetSet', { id: a })); pushWsList(); }
+    else log(t('cmd.targetOptions', { list: AGENTS.map((x) => x.id).join(' / ') }));
     return;
   }
 
   const tgt = to || targetOf() || (AGENTS[0] && AGENTS[0].id);
-  if (!relay || !relay.started) { log('中继未就绪，发不出去。看上面的启动日志。'); return; }
+  if (!relay || !relay.started) { log(t('cmd.relayNotReady')); return; }
   push({ who: 'sys', text: `→ ${tgt}` });
   const r = await relay.send(tgt, text);
-  if (!r.ok) log('发送失败：' + r.error);
+  if (!r.ok) log(t('cmd.sendFailed', { msg: r.error }));
 }
 
-/** 切换某个 agent 的工作空间 */
+/** Point one agent at a different workspace */
 async function applyWs(agentId, p) {
   wsOf[agentId] = p;
   try { fs.writeFileSync(WS_FILE, p, 'utf8'); } catch (_) {}
-  log(`${agentId} 工作空间 → ${p}`);
+  log(t('ws.switched', { id: agentId, path: p }));
   if (relay && relay.started) {
-    try { await relay.switchWs(agentId, p); } catch (e) { log('切换失败：' + e.message); }
+    try { await relay.switchWs(agentId, p); } catch (e) { log(t('cmd.switchFailed', { msg: e.message })); }
   }
   pushWsList();
 }
 
-/* ---------- 主流程 ---------- */
+/* ---------- Boot ---------- */
 
 async function boot() {
-  log('=== Agent Hub 启动 ===');
-  log(`设置文件：${cfg.FILE}${fs.existsSync(cfg.FILE) ? '' : '（还没有，用到时自动生成）'}`);
-  log(`node = ${NODE || '(没找到 —— 可在「设置」里指定)'}`);
+  log(t('boot.title'));
+  log(t('boot.configFile', {
+    file: cfg.FILE,
+    suffix: fs.existsSync(cfg.FILE) ? '' : t('boot.configMissing'),
+  }));
+  log(t('boot.node', { path: NODE || t('boot.nodeMissing') }));
 
   proxyInfo = await resolveProxy();
   log(proxyInfo.proxy
-    ? `代理 = ${proxyInfo.proxy}（来自：${proxyInfo.src}）`
-    : '代理 = 不使用（Codex 若连不上，多半是这里要填，点右上角「设置」）');
+    ? t('boot.proxySet', { proxy: proxyInfo.proxy, src: proxyInfo.src })
+    : t('boot.proxyNone'));
   for (const a of AGENTS) {
     if (a.kind === 'codex-app-server') a.proxy = a.proxy || proxyInfo.proxy;
   }
@@ -348,87 +375,92 @@ async function boot() {
   workspaces = listWorkspaces();
   const def = loadSavedWs();
   for (const a of AGENTS) wsOf[a.id] = def;
-  log(`发现 ${workspaces.length} 个工作空间，默认：${def}`);
+  log(t('boot.wsFound', { n: workspaces.length, path: def }));
   pushWsList();
 
-  // 0) 缺关键路径 → 直接把「设置」摆到用户面前，不让他去翻文档
+  // Missing a key path? Put Settings in front of the user instead of a doc link
   const needCodex = AGENTS.some((a) => a.enabled !== false && a.kind === 'codex-app-server');
   if (needCodex && !CODEX_CLI) {
-    log('★ 没找到 Codex CLI —— 已打开「设置」窗口，选一下 codex.exe 的位置即可。');
+    log(t('boot.noCodexCli'));
     setTimeout(() => openSettings(), 700);
   }
 
-  // 1) 起各 agent 自带的 app-server（配置里声明了 port 的）
+  // 1) Start each agent's own app-server (the ones that declare a port)
   for (const a of AGENTS) {
     if (a.enabled === false) continue;
     if (a.kind !== 'codex-app-server' || !a.port) continue;
-    if (!CODEX_CLI) { log(`${a.name} 跳过：没有 Codex CLI 路径`); continue; }
+    if (!CODEX_CLI) { log(t('boot.legSkipped', { name: a.name })); continue; }
     const lf = path.join(RELAY_ROOT, a.id + '-app.log');
     const px = a.proxy || '';
-    // ⚠️ 上次若是被强杀（任务管理器 / `taskkill /F`）退出的，app-server 子进程会活下来，
-    //    占着端口不放。它同时还握着会话的写入权 —— 会让 Codex 客户端报
-    //    「已在另一个应用中打开，请先在那边关闭会话」。所以起新的之前先把残留清掉。
+    // A previous run that was force-killed (Task Manager / `taskkill /F`) leaves the
+    // app-server alive, holding the port. It also still holds the conversation's
+    // write lock, which makes the Codex client complain "already open in another
+    // app". So clear any leftover before starting a fresh one.
     if (portBusy(a.port)) {
-      log(`${a.name} 端口 ${a.port} 已被占用，先清掉上次留下的残留进程…`);
+      log(t('boot.portBusy', { name: a.name, port: a.port }));
       killByPort(a.port);
       await new Promise((r) => setTimeout(r, 1000));
       if (quitting) return;
     }
-    // ⚠️ codex 必须带代理，否则回合会一直卡在 inProgress
+    // Codex needs the proxy, otherwise turns hang forever in inProgress
     const env = px
       ? `set "HTTPS_PROXY=${px}" && set "HTTP_PROXY=${px}" && set "ALL_PROXY=${px}" && `
       : '';
-    log(`启动 ${a.name} 的 app-server…`);
+    log(t('boot.startingServer', { name: a.name }));
     spawnRaw(`${env}"${CODEX_CLI}" app-server --listen ws://127.0.0.1:${a.port} > "${lf}" 2>&1`, a.id);
     const up = await waitPort(a.port, 30000);
     if (quitting) return;
-    log(up ? `${a.name} app-server 就绪（:${a.port}）` : `${a.name} app-server 30 秒内未监听 ${a.port}`);
+    log(up
+      ? t('boot.serverReady', { name: a.name, port: a.port })
+      : t('boot.serverTimeout', { name: a.name, port: a.port }));
   }
 
-  // 2) 发现 ACP 端口（WorkBuddy 这类，端口每次都可能变）
-  log('发现 ACP 端口…');
+  // 2) Discover ACP ports (WorkBuddy and friends change port on every start)
+  log(t('boot.discoverAcp'));
   acpPorts = await discoverPorts();
-  log(acpPorts.length ? '发现端口：' + acpPorts.join(', ') : '没发现可用的 ACP 端口');
+  log(acpPorts.length ? t('boot.portsFound', { list: acpPorts.join(', ') }) : t('boot.noAcpPort'));
 
-  // 3) 起对等中继：所有 agent 同时接上，路由在中继里
-  log('启动对等中继…');
+  // 3) Start the peer relay: every agent connects at once, routing stays in here
+  log(t('boot.startingRelay'));
   relay = new Relay({
     agents: AGENTS,
     cwd: def,
     cwds: wsOf,
-    // ⚠️ 留档也要写用户目录：__dirname 在打包后位于 asar 内（只读），写不进去
+    // The archive has to live in the user directory too: __dirname is inside the
+    // read-only asar once packaged.
     logFile: ARCHIVE_FILE,
   });
   relay.on('info', (m) => log(m));
   relay.on('delta', ({ from, text }) => push({ who: from, text }));
   relay.on('reasoning', ({ text }) => push({ who: 'sys', text: '· ' + text }));
-  relay.on('turnDone', ({ from }) => log(`[${from} 本轮结束]`));
+  relay.on('turnDone', ({ from }) => log(`[${from}] —`));
   relay.on('status', (s) => refreshStatus(s));
 
   try {
     const st = await relay.start();
     refreshStatus(st);
-    log('各 agent 状态：' + JSON.stringify(st));
-    log('底栏选「发给谁」+ 输入回车即可。');
+    log(t('boot.status', { json: JSON.stringify(st) }));
+    log(t('boot.ready'));
     setTarget((AGENTS.find((a) => st[a.id] === 'ready') || AGENTS[0] || {}).id);
     pushWsList();
   } catch (e) {
-    log('中继启动失败：' + e.message);
-    setStatus('中继失败');
+    log(t('boot.relayFailed', { msg: e.message }));
+    setStatus(t('status.relayFailed'));
   }
 
   if (process.env.RELAY_SHOT === '1') {
-    // 验收用：跑起来 → 截图 → 自动退出
+    // Verification only: run, screenshot, quit by itself
     setTimeout(async () => {
       if (process.env.RELAY_SHOT_SETTINGS === '1') {
         openSettings();
         await new Promise((r) => setTimeout(r, 2500));
       }
-      for (const [label, w, f] of [['主窗口', win, 'shot.png'], ['设置窗口', settingsWin, 'shot-settings.png']]) {
-        if (!w || w.isDestroyed()) { log(`${label}截图跳过：窗口不存在`); continue; }
+      const shots = [['main', win, 'shot.png'], ['settings', settingsWin, 'shot-settings.png']];
+      for (const [label, w, f] of shots) {
+        if (!w || w.isDestroyed()) { log(`shot skipped (${label}): no window`); continue; }
         try { w.show(); w.focus(); } catch (_) {}
         const r = await shoot(w.webContents, path.join(RELAY_ROOT, f));
-        log(r === true ? `已截图 → ${f}` : (r ? `capturePage 不行，已改用打印管线 → ${String(f).replace(/\.png$/, '.pdf')}` : `${label}截图失败：环境拿不到画面`));
+        log(r === true ? `shot ok → ${f}` : (r ? `capturePage failed, fell back to printToPDF → ${String(f).replace(/\.png$/, '.pdf')}` : `shot failed (${label}): no frames available`));
       }
       setTimeout(() => { quitting = true; killKids(); setTimeout(() => app.quit(), 800); }, 500);
     }, Number(process.env.RELAY_SHOT_DELAY) || 4000);
@@ -436,9 +468,11 @@ async function boot() {
 }
 
 /**
- * 截图：先试 capturePage（重试 3 次）。
- * ⚠️ 桌面锁屏 / 会话不可见时 Chromium 合成器会给 UnknownVizError —— 与是否打包无关。
- * 拿不到就退回打印管线（printToPDF），至少留一份能看的版式记录。
+ * Screenshot helper: try capturePage (3 attempts), then fall back to printToPDF.
+ *
+ * A locked desktop / invisible session makes Chromium's compositor report
+ * UnknownVizError — that has nothing to do with packaging. The PDF at least
+ * leaves a readable record of the layout.
  */
 async function shoot(wc, file) {
   for (let i = 0; i < 3; i++) {
@@ -455,7 +489,7 @@ async function shoot(wc, file) {
   } catch (_) { return false; }
 }
 
-/* ---------- 窗口 ---------- */
+/* ---------- Windows ---------- */
 
 function createWindow() {
   win = new BrowserWindow({
@@ -478,13 +512,13 @@ function createWindow() {
   win.on('closed', () => { win = null; });
 }
 
-/** 设置窗口：只干一件事 —— 让用户不用翻文档就能把路径/代理填对 */
+/** The settings window does one job: let people fill in paths/proxy without reading docs */
 function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.show(); settingsWin.focus(); return settingsWin; }
   settingsWin = new BrowserWindow({
     width: 660,
-    height: 660,
-    title: 'Agent Hub · 设置',
+    height: 700,
+    title: t('win.settingsTitle'),
     parent: win || undefined,
     resizable: true,
     autoHideMenuBar: true,
@@ -503,6 +537,12 @@ function openSettings() {
 
 /* ---------- IPC ---------- */
 
+/** The renderer asks for its dictionary synchronously while preload runs */
+ipcMain.on('i18n-sync', (e) => {
+  const lang = i18n.getLang();
+  e.returnValue = { lang, dict: i18n.DICT[lang] || i18n.DICT.zh };
+});
+
 ipcMain.on('term-send', (_e, payload) => {
   const text = typeof payload === 'string' ? payload : String((payload && payload.text) || '');
   const to = typeof payload === 'object' && payload ? payload.to : undefined;
@@ -514,7 +554,7 @@ ipcMain.on('term-selectws', async (_e, d) => {
   await applyWs(d.side, d.path);
 });
 
-/** 清空留档（relay.jsonl）—— 二次确认，不可恢复 */
+/** Clear the archive (relay.jsonl) — asks first, cannot be undone */
 ipcMain.handle('log-clear', async () => {
   let lines = 0;
   try {
@@ -522,21 +562,21 @@ ipcMain.handle('log-clear', async () => {
   } catch (_) {}
   const r = await dialog.showMessageBox(win || undefined, {
     type: 'warning',
-    buttons: ['取消', '清空'],
+    buttons: [t('log.clearCancel'), t('log.clearOk')],
     defaultId: 0,
     cancelId: 0,
     noLink: true,
-    message: '确定清空留档吗？',
-    detail: `将清空 ${ARCHIVE_FILE} 中现有的 ${lines} 条记录，清空后不可恢复。\n（relay.log 运行日志不受影响）`,
+    message: t('log.clearTitle'),
+    detail: t('log.clearDetail', { file: ARCHIVE_FILE, n: lines }),
   });
   if (r.response !== 1) return { ok: false, cancelled: true };
   try {
     fs.writeFileSync(ARCHIVE_FILE, '', 'utf8');
   } catch (e) {
-    log('清空留档失败：' + e.message);
+    log(t('log.clearFailed', { msg: e.message }));
     return { ok: false, error: e.message };
   }
-  log(`留档已清空（原有 ${lines} 条）→ ${ARCHIVE_FILE}`);
+  log(t('log.cleared', { n: lines, file: ARCHIVE_FILE }));
   return { ok: true, cleared: lines, file: ARCHIVE_FILE };
 });
 
@@ -552,6 +592,8 @@ ipcMain.handle('cfg-get', () => {
     codexCliPath: c.codexCliPath || '',
     proxy: c.proxy || '',
     codexPort: codexLeg.port || '',
+    uiLang: c.uiLang || 'auto',
+    lang: i18n.getLang(),
     resolved: {
       node: NODE,
       codexCli: CODEX_CLI,
@@ -573,8 +615,8 @@ ipcMain.handle('cfg-save', (_e, patch) => {
     delete p.codexPort;
   }
   const r = cfg.save(p);
-  if (r.ok) log('设置已保存 → ' + r.file + '（重启 Agent Hub 后生效）');
-  else log('设置保存失败：' + r.error);
+  if (r.ok) log(t('set.savedLog', { file: r.file }));
+  else log(t('set.saveFailedLog', { msg: r.error }));
   return r;
 });
 
@@ -582,7 +624,7 @@ ipcMain.handle('cfg-pick', async (_e, kind) => {
   const isNode = kind === 'node';
   const parent = (settingsWin && !settingsWin.isDestroyed()) ? settingsWin : (win || undefined);
   const r = await dialog.showOpenDialog(parent, {
-    title: isNode ? '选择 node.exe' : '选择 codex.exe',
+    title: isNode ? t('set.pickNode') : t('set.pickCodex'),
     properties: ['openFile'],
     filters: [{ name: isNode ? 'node' : 'codex', extensions: ['exe'] }],
   });
@@ -593,7 +635,7 @@ ipcMain.handle('cfg-pick', async (_e, kind) => {
 ipcMain.handle('cfg-detect', () => ({ ok: true, node: autoNode(), codexCli: autoCodexCli() }));
 
 ipcMain.handle('cfg-restart', () => {
-  log('按用户要求重启 Agent Hub…');
+  log(t('set.restarting'));
   quitting = true;
   killKids();
   setTimeout(() => { app.relaunch(); app.exit(0); }, 400);
@@ -602,9 +644,10 @@ ipcMain.handle('cfg-restart', () => {
 
 ipcMain.on('cfg-close', () => { try { if (settingsWin && !settingsWin.isDestroyed()) settingsWin.close(); } catch (_) {} });
 
-/* ---------- 生命周期 ---------- */
+/* ---------- Lifecycle ---------- */
 
 app.whenReady().then(() => {
+  i18n.setLang(pickLang());
   createWindow();
   boot();
 });

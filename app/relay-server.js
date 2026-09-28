@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * codex/relay/app/relay-server.js —— 对等中继（**可扩展，支持 N 个 agent**）
+ * app/relay-server.js — the peer relay (extensible: supports N agents)
  *
  * 架构：多个 agent 同时连在中继上，**对等**，谁也不指挥谁。
  * 路由全在中继里，agent 之间彼此不知道对方存在。
@@ -25,6 +25,8 @@ const path = require('path');
 const { CodexLink } = require('./relay');
 const { WorkBuddyLink } = require('./workbuddy-link');
 const { discoverPorts } = require('./discover');
+const i18n = require('./i18n');
+const t = i18n.t;
 
 class Relay extends EventEmitter {
   constructor(opts) {
@@ -65,7 +67,7 @@ class Relay extends EventEmitter {
 
   async start() {
     const names = this.agents.map((a) => a.name || a.id).join(', ');
-    this.emit('info', '中继启动，接了 ' + this.agents.length + ' 个 agent：' + names);
+    this.emit('info', t('relay.started', { n: this.agents.length, names }));
     for (const def of this.agents) await this.startLeg(def);
     this.started = true;
     return this.status();
@@ -86,26 +88,26 @@ class Relay extends EventEmitter {
         await link.connect();
         await link.init();
         await link.startThread(cwd, { sandbox: 'read-only' });
-        this.emit('info', `${def.name} 就绪（thread=${link.threadId}  cwd=${cwd}）`);
+        this.emit('info', t('relay.readyServer', { name: def.name, thread: link.threadId, cwd }));
       } else if (def.kind === 'acp') {
         const base = def.base || await this._discoverAcp();
-        if (!base) throw new Error('没发现可用的 ACP 端口');
+        if (!base) throw new Error(t('relay.noAcp'));
         link.base = base;
         leg.base = base;
         await link.connect();
         await link.init();
         await link.startEvents();
         await link.newSession(cwd);
-        this.emit('info', `${def.name} 就绪（${base}  session=${link.sessionId}  cwd=${cwd}）`);
+        this.emit('info', t('relay.readyAcp', { name: def.name, base, session: link.sessionId, cwd }));
       } else {
-        throw new Error('暂不支持的 kind：' + def.kind);
+        throw new Error(t('relay.unsupportedKind', { kind: def.kind }));
       }
 
       leg.link = link;
       this._setStatus(def.id, 'ready');
     } catch (e) {
       this._setStatus(def.id, 'error');
-      this.emit('info', `${def.name} 接入失败：${e.message}`);
+      this.emit('info', t('relay.failed', { name: def.name, msg: e.message }));
     }
     return leg;
   }
@@ -137,22 +139,24 @@ class Relay extends EventEmitter {
   /* ---------- 发 ---------- */
 
   async send(agentId, text) {
-    const t = String(text || '');
-    if (!t) return { ok: false, error: '内容为空' };
+    const body = String(text || '');
+    if (!body) return { ok: false, error: t('relay.emptyText') };
     const leg = this.legs.get(agentId);
-    if (!leg) return { ok: false, error: '未知 agent：' + agentId };
-    if (!leg.link || leg.status !== 'ready') return { ok: false, error: (leg.def.name || agentId) + ' 未就绪' };
+    if (!leg) return { ok: false, error: t('relay.unknownAgent', { id: agentId }) };
+    if (!leg.link || leg.status !== 'ready') return { ok: false, error: t('relay.notReady', { name: leg.def.name || agentId }) };
 
-    this._archive({ from: 'user', to: agentId, kind: 'prompt', text: t });
-    this.emit('sent', { to: agentId, text: t });
+    this._archive({ from: 'user', to: agentId, kind: 'prompt', text: body });
+    this.emit('sent', { to: agentId, text: body });
 
     try {
       if (leg.def.kind === 'codex-app-server') {
-        await leg.link.say(t);
+        await leg.link.say(body);
         return { ok: true };
       }
-      // 注入 ACP 会话时加来源标记：否则消息与用户自己打的字完全一样，无法分辨
-      const marked = this.markInbound ? `[中继·${leg.def.name || leg.def.id}] ${t}` : t;
+      // Mark messages injected into an ACP session; otherwise they look exactly
+      // like something the user typed themselves.
+      const mark = t('relay.mark', { name: leg.def.name || leg.def.id });
+      const marked = this.markInbound ? mark + body : body;
       const r = await leg.link.prompt(marked);
       return { ok: true, text: r.text };
     } catch (e) {
@@ -164,17 +168,17 @@ class Relay extends EventEmitter {
 
   async switchWs(agentId, cwd) {
     const leg = this.legs.get(agentId);
-    if (!leg) throw new Error('未知 agent：' + agentId);
+    if (!leg) throw new Error(t('relay.unknownAgent', { id: agentId }));
     leg.cwd = cwd;
     this.cwds[agentId] = cwd;
     if (!leg.link || leg.status !== 'ready') {
-      this.emit('info', `${leg.def.name} 未就绪，仅记录工作空间`);
+      this.emit('info', t('relay.notReadyWsOnly', { name: leg.def.name }));
       return null;
     }
 
     if (leg.def.kind === 'codex-app-server') {
       await leg.link.startThread(cwd, { sandbox: 'read-only' });   // cwd 变了必须新开 thread
-      this.emit('info', `${leg.def.name} 已切到 ${cwd}（thread=${leg.link.threadId}）`);
+      this.emit('info', t('relay.switchedThread', { name: leg.def.name, cwd, thread: leg.link.threadId }));
       return leg.link.threadId;
     }
 
@@ -197,7 +201,7 @@ class Relay extends EventEmitter {
       // ⚠️ 切完必须回到 ready。不设的话状态会停在 closed：
       // 界面显示未连接，而且 send() 会因为「未就绪」直接拒发。
       this._setStatus(leg.def.id, 'ready');
-      this.emit('info', `${leg.def.name} 已切到 ${cwd}（session=${link.sessionId}）`);
+      this.emit('info', t('relay.switchedSession', { name: leg.def.name, cwd, session: link.sessionId }));
       return link.sessionId;
     }
     return null;

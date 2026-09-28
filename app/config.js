@@ -24,12 +24,14 @@ const HOME_DIR = path.join(os.homedir(), '.agent-hub');
 const FILE = process.env.AGENT_HUB_CONFIG || path.join(HOME_DIR, 'config.json');
 
 const DEFAULTS = {
-  // 路径类：一律留空表示「自动探测」，探测不到才让用户填
+  // Paths: empty means "auto-detect"; you only fill these in when detection fails
   nodePath: '',
   codexCliPath: '',
-  // 代理：留空表示「自动探测本机常见端口」，再不行就不带代理启动
+  // Proxy: empty means "probe common local ports", then fall back to no proxy
   proxy: '',
-  // 各个 agent（不填则用 app/agents.js 的内置默认）
+  // UI language: 'auto' follows the OS locale, or force 'zh' / 'en'
+  uiLang: 'auto',
+  // Agents (falls back to app/agents.js when empty)
   agents: DEFAULT_AGENTS,
 };
 

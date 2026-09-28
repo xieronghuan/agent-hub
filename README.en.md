@@ -5,7 +5,7 @@ Windows only for now.
 
 [中文](README.md) · [English](README.en.md)
 
-<img src="docs/screenshot.png" alt="Agent Hub main window" width="860">
+<img src="docs/screenshot-en.png" alt="Agent Hub main window" width="860">
 
 ## What it's for
 
@@ -46,16 +46,16 @@ npm start
 
 You need Windows, plus at least one of WorkBuddy or Codex installed.
 
-If it can't find `codex.exe` on first launch, click 设置 (Settings) in the top right and point it
-at the file. No docs needed.
+If it can't find `codex.exe` on first launch, click Settings in the top right and point it at the
+file. No docs needed.
 
-One caveat: **the UI itself is Chinese only** right now. The docs are bilingual, the interface
-isn't.
+The interface is bilingual: it follows your system language, and you can pin it to Chinese or
+English in Settings.
 
 ## Usage
 
 Pick who you're sending to from the dropdown at the bottom left, type, and press Enter. There are
-two buttons in the top right: 设置 (Settings) and 清空留档 (clear history).
+two buttons in the top right: Settings and Clear history.
 
 A few commands you can type straight into the input box:
 
@@ -75,9 +75,9 @@ Everything is looked up in the same order:
 env var → ~/.agent-hub/config.json → auto-detect → open the Settings window and ask you
 ```
 
-Click 设置 (Settings) in the UI to edit it:
+Click Settings in the UI to edit it:
 
-<img src="docs/screenshot-settings.png" alt="Agent Hub settings window" width="560">
+<img src="docs/screenshot-settings-en.png" alt="Agent Hub settings window" width="560">
 
 | Setting | Env var | Notes |
 |---|---|---|
@@ -85,6 +85,7 @@ Click 设置 (Settings) in the UI to edit it:
 | codex.exe path | `CODEX_CLI` | auto-detected if empty; ignore it if you don't use Codex |
 | Proxy | `RELAY_PROXY` | if empty, probes common local proxy ports (7897 / 7890 / 10809 / 1080 …). Reaching Codex from mainland China usually needs a proxy |
 | Codex port | — | defaults to `8899` |
+| Interface language | `RELAY_LANG` | empty follows the system; set `zh` or `en` to pin it |
 
 Config stays on your machine; it doesn't travel with the repo. Everything lives in
 `~/.agent-hub/`:

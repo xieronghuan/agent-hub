@@ -53,18 +53,18 @@
 <body>
   <div id="bar">
     <div id="legs"></div>
-    <span id="status">启动中…</span>
+    <span id="status" data-i18n="status.starting"></span>
     <span id="acts">
-      <button id="btnSet" class="btn" title="改本机路径 / 代理（存到用户目录，不动源码）">设置</button>
-      <button id="btnClr" class="btn" title="清空历史留档 relay.jsonl">清空留档</button>
+      <button id="btnSet" class="btn" data-i18n="ui.settings" data-i18n-title="ui.settingsTitle"></button>
+      <button id="btnClr" class="btn" data-i18n="ui.clearHistory" data-i18n-title="ui.clearHistoryTitle"></button>
     </span>
   </div>
   <div id="out"></div>
   <div id="in">
     <span id="ps">PS&gt;</span>
-    <select id="target" class="wspick" title="这条消息发给谁"></select>
-    <input id="cmd" autocomplete="off" spellcheck="false" placeholder="输入消息，回车发送…">
-    <span id="hint">/help 看命令</span>
+    <select id="target" class="wspick" data-i18n-title="ui.targetTitle"></select>
+    <input id="cmd" autocomplete="off" spellcheck="false" data-i18n-ph="ui.inputPlaceholder">
+    <span id="hint" data-i18n="ui.helpHint"></span>
   </div>
 <script>
   const out = document.getElementById('out');
@@ -72,6 +72,11 @@
   const statusEl = document.getElementById('status');
   const legsEl = document.getElementById('legs');
   const targetSel = document.getElementById('target');
+
+  /* All user-facing text comes from the dictionary the main process resolved.
+     T() is a safe fallback so a missing bridge shows keys instead of crashing. */
+  const T = (window.i18n && window.i18n.t) ? window.i18n.t : function (k) { return k; };
+  if (window.i18n) window.i18n.apply();
 
   let AGENTS = [];                              // [{id,name,color,cwd}]
   const wsSelByAgent = {};                      // id → <select>
@@ -109,7 +114,7 @@
 
       const sel = document.createElement('select');
       sel.className = 'wspick';
-      sel.title = a.name + ' 的工作空间';
+      sel.title = T('ui.wsTitle', { name: a.name });
       sel.addEventListener('change', function () {
         if (window.term) window.term.selectWs(a.id, sel.value);
       });
@@ -196,7 +201,7 @@
     else if (who === 'ws') span.className = 'wsp';
     else if (who) span.className = 'a-' + who;   // agent 输出用它的标识色，与顶栏圆点对应
     const plain = !who || who === 'sys' || who === 'user' || who === 'ws' || who === 'error';
-    const label = who ? (plain ? who : nameOf(who)) : '';
+    const label = !who ? '' : (who === 'user' ? T('ui.userLabel') : (plain ? who : nameOf(who)));
     span.textContent = '[' + stamp(ts) + '] ' + (label ? label + ' ' : '') + text + '\n';
     out.appendChild(span);
     out.scrollTop = out.scrollHeight;
@@ -232,7 +237,7 @@
       const d = dotByAgent[id];
       if (!d) return;
       d.className = 'lg' + (statuses[id] === 'ready' ? ' on' : '');
-      d.title = nameOf(id) + '：' + statuses[id];
+      d.title = T('ui.dotTitle', { name: nameOf(id), status: statuses[id] });
     });
   }
 
@@ -253,7 +258,7 @@
       applyStatuses(d.statuses);
     });
   } else {
-    line('sys', '（未连接到主进程）');
+    line('sys', T('ui.noBridge'));
   }
 
   /* ---------- 右上角两个按钮：不用记命令，点就行 ---------- */
@@ -263,8 +268,8 @@
   document.getElementById('btnClr').addEventListener('click', async function () {
     if (!window.term) return;
     const r = await window.term.clearLog();
-    if (r && r.cancelled) line('sys', '已取消清空留档。');
-    else if (!r || !r.ok) line('error', '清空留档失败：' + ((r && r.error) || '未知原因'));
+    if (r && r.cancelled) line('sys', T('ui.clearedCancelled'));
+    else if (!r || !r.ok) line('error', T('ui.clearFailed', { msg: (r && r.error) || '?' }));
   });
 
   cmd.addEventListener('keydown', function (e) {
