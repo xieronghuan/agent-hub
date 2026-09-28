@@ -112,6 +112,17 @@ class Relay extends EventEmitter {  constructor(opts) {
         await link.init();
         await link.startThread(cwd, { sandbox: 'read-only' });
         this.emit('info', t('relay.readyServer', { name: def.name, thread: link.threadId, cwd }));
+        // 模型列表拉不到不算致命（老版本 codex 没 model/list），但要说出来
+        try {
+          await link.loadModels();
+        } catch (e) {
+          this.emit('info', t('relay.modelsUnavailable', { name: def.name, msg: e.message }));
+        }
+        const cm = link.currentModel && link.currentModel();
+        if (cm) {
+          leg.model = cm.value;
+          this.emit('info', t('relay.modelNow', { name: def.name, model: cm.label }));
+        }
       } else if (def.kind === 'acp') {
         const base = def.base || await this._discoverAcp(cwd);
         if (!base) throw new Error(t('relay.noAcp'));
@@ -272,23 +283,31 @@ class Relay extends EventEmitter {  constructor(opts) {
     return this._acpBase;
   }
 
-  /** 当前各 agent 的模型（ACP 腿才有；Codex 腿留空） */
+  /** 当前各 agent 的模型。两条腿都提供 currentModel()/modelChoices()，这里不按 kind 分支 */
   modelInfo() {
     const out = {};
     for (const [id, l] of this.legs) {
-      if (l.def.kind !== 'acp' || !l.link || !l.link.currentModel) continue;
+      if (!l.link || !l.link.currentModel) continue;
       const m = l.link.currentModel();
-      if (m) out[id] = { value: m.value, label: m.label, choices: l.link.modelChoices() };
+      if (!m) continue;
+      out[id] = { value: m.value, label: m.label, choices: l.link.modelChoices ? l.link.modelChoices() : [] };
     }
     return out;
   }
 
-  /** 改某个 agent 的会话设置（如换模型），成功返回新值 */
+  /**
+   * 换某个 agent 用的模型。
+   * ACP 腿走 session/set_config_option（立刻生效）；Codex 腿是"下一轮带上去"（见 relay.js）。
+   */
   async setConfig(agentId, configId, value) {
     const leg = this.legs.get(agentId);
     if (!leg || !leg.link || !leg.link.setConfigOption) return null;
     const m = await leg.link.setConfigOption(configId, value);
-    this.emit('info', t('relay.modelChanged', { name: leg.def.name, model: m.label }));
+    if (!m) return null;
+    leg.model = m.value;
+    this.emit('info', leg.def.kind === 'codex-app-server'
+      ? t('relay.modelNextTurn', { name: leg.def.name, model: m.label })
+      : t('relay.modelChanged', { name: leg.def.name, model: m.label }));
     return m;
   }
 
@@ -354,6 +373,8 @@ class Relay extends EventEmitter {  constructor(opts) {
 
     if (leg.def.kind === 'codex-app-server') {
       await leg.link.startThread(cwd, { sandbox: 'read-only' });   // cwd 变了必须新开 thread
+      const cm = leg.link.currentModel && leg.link.currentModel();
+      if (cm) leg.model = cm.value;
       this.emit('info', t('relay.switchedThread', { name: leg.def.name, cwd, thread: leg.link.threadId }));
       return leg.link.threadId;
     }

@@ -26,6 +26,45 @@ class CodexLink extends EventEmitter {
     this.threadId = null;
     this.ready = false;
     this._closed = false;
+    // 当前模型：thread/start 的返回里带（服务端默认值），之后用户可以换
+    this.model = null;
+    this.modelProvider = null;
+    // 可选模型（model/list 的结果），启动时拉一次缓存下来
+    this.models = [];
+  }
+
+  /* ---------- 模型 ---------- */
+
+  /** 拉一份可选模型列表（model/list）。老版本 codex 没这个方法，会走 catch。 */
+  async loadModels() {
+    const r = await this.rpc('model/list', { limit: 200 }, 20000);
+    const data = (r && r.data) || [];
+    this.models = data
+      .filter((m) => m && (m.id || m.model) && !m.hidden)
+      .map((m) => ({ value: m.id || m.model, name: m.displayName || m.id || m.model }));
+    return this.models;
+  }
+
+  /** 当前模型，形如 { value:'gpt-5.6-sol', label:'GPT-5.6-Sol' }；没有就 null */
+  currentModel() {
+    if (!this.model) return null;
+    const m = this.models.find((x) => x.value === this.model);
+    return { value: this.model, label: (m && m.name) || this.model };
+  }
+
+  modelChoices() { return this.models; }
+
+  /**
+   * 换模型。Codex 是**按轮**指定模型的（turn/start 的 params.model），
+   * 所以这里只记住，下一轮说的时候带上 —— 不用重开会话，上下文不丢。
+   *
+   * 已实测确认真的生效：turn/start 带 gpt-6-astra 之后，codex 自己的落盘记录
+   * （~/.codex/sessions 下的 rollout-*.jsonl）里那轮的 turn_context 就是 gpt-6-astra。
+   */
+  async setConfigOption(configId, value) {
+    if (configId !== 'model') return null;
+    this.model = value;
+    return this.currentModel();
   }
 
   /* ---------- 连接 ---------- */
@@ -142,7 +181,10 @@ class CodexLink extends EventEmitter {
   async startThread(cwd, opts) {
     const params = Object.assign({}, opts || {});
     if (cwd) params.cwd = cwd;
+    // 用户已经选过模型的话，新会话也用它（服务端返回的才是最终生效的那个）
+    if (this.model && !params.model) params.model = this.model;
     const r = await this.rpc('thread/start', params);
+    if (r && r.model) { this.model = r.model; this.modelProvider = r.modelProvider || null; }
     const id = (r && (r.threadId || (r.thread && r.thread.id) || (r.thread && r.thread.threadId))) || null;
     if (!id) throw new Error('thread/start 未返回 threadId，原始返回：' + JSON.stringify(r).slice(0, 300));
     this.threadId = id;
@@ -159,10 +201,13 @@ class CodexLink extends EventEmitter {
   /** 发一轮消息。立即返回 turnId；正文通过 delta 事件流出 */
   async say(text) {
     if (!this.threadId) throw new Error('还没有会话，先 startThread()');
-    return this.rpc('turn/start', {
+    const params = {
       threadId: this.threadId,
       input: [{ type: 'text', text: String(text) }],
-    }, 15000);
+    };
+    // 模型是按轮传的：用户换过就带上，没换过就用服务端默认
+    if (this.model) params.model = this.model;
+    return this.rpc('turn/start', params, 15000);
   }
 
   /** 给正在跑的回合插话（实时转向） */

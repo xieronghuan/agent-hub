@@ -54,10 +54,15 @@ English in Settings.
 
 ## Which model is it using
 
-Next to the WorkBuddy name in the top bar there's a model dropdown — it shows the model currently
-in use and lets you switch on the fly (the same 20 options the WorkBuddy client offers: Fast /
-Balanced / Max / GLM / Kimi / Deepseek…). It takes effect immediately, no restart. Codex doesn't
-expose this yet.
+Every agent in the top bar has a model dropdown next to its name. It shows the model in use and
+lets you switch without restarting.
+
+- WorkBuddy: 20 options (the same ones the client offers: Fast / Balanced / Max / GLM / Kimi /
+  Deepseek…), takes effect immediately
+- Codex: 5 options (GPT-6-Astra / GPT-5.6-Sol / Terra / Luna / GPT-5.5), **effective from the next
+  turn** — Codex picks its model per turn, so switching keeps the thread and its context intact
+
+The current model for each side is also printed in the startup log.
 
 ## Usage
 
