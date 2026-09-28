@@ -131,12 +131,14 @@ one on every launch:
 - **WorkBuddy** — attaches to the session its client is already using for that folder, so what the
   hub sends and receives shows up in your WorkBuddy window and can be continued there
 
-  ⚠️ But **which folder it works in is decided by the WorkBuddy client, not by the hub**: the ACP
-  endpoint follows whichever project you have open in WorkBuddy, and the workspace you pick on the
-  hub side cannot override that. To have it work in some folder, switch to that folder in the
-  WorkBuddy client first. If it is on a different one, the hub prints a warning saying which folder
-  the endpoint actually belongs to — in that case there is no session to attach to, so it can only
-  ask the host for a new one (which will not be listed in the client).
+  ⚠️ One thing to be clear about: **the folder it works in is tied to the endpoint.** WorkBuddy
+  starts one ACP endpoint per project it has open, and the endpoint decides the working folder.
+  ACP has no "change directory" call at all (`session/set_cwd`, `workspace/set` and friends — all
+  tried, all Method not found; the session config options have no folder entry either), so the
+  workspace you pick on the hub side **cannot move an endpoint**. The reliable move is to **open
+  that folder in the WorkBuddy client**. If it is not open, the hub warns you which folder the
+  endpoint does belong to — and in that case the client's conversation cannot be attached to
+  either, so it can only ask the host for a new one.
 - **Codex** — asks which thread was used last for that folder (`thread/list`) and reopens it
   (`thread/resume`), so the Codex client does not gain a new conversation every launch
 
