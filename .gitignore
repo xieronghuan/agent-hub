@@ -19,6 +19,7 @@ app/node_modules/
 *.jsonl
 .workspace
 /shot*.png
+/e2e-*.png
 *.pdf
 
 # ---- 系统 ----

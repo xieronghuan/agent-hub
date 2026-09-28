@@ -165,7 +165,11 @@ const DICT = {
     'relay.notReady': '{name} 未就绪',
     'relay.mark': '[中继·{name}] ',
     'relay.fromAgent': '[中继·来自 {name}] ',
-    'relay.desk': '[中继] 这张桌子上还接入了：{others}。你看不到它们，也不能直接联系它们 —— 消息都经过中继转达。',
+    'relay.desk': '[中继] 这张桌子上还接入了：{others}。你看不到它们，也不能直接联系它们 —— 消息都经过中继转达。'
+      + '**如果这轮你不需要再回应，就只回「{end}」两个字，中继就会停止转达**（别回"收到""待命"这类话，那会让它们一直互相回下去）。',
+    'relay.endToken': '[完]',
+    'relay.autoEnded': '{name} 表示谈完了，自动接力停了。',
+    'relay.autoRepeat': '{name} 这一轮和上一轮说的一模一样，判定在原地打转，自动接力停了。',
     'relay.autoArmed': '自动接力：谁答完，它的回复会自动转给另一个 agent（最多 {n} 轮）。输入 /stop 停这一轮。',
     'relay.autoArmedNoLimit': '自动接力：谁答完就转给另一个。**不限轮数** —— 不敲 /stop 它会一直来回发'
       + '（实测 90 秒能来回 25 轮，还会退化成互相发"待命"这类空话）。',
@@ -322,7 +326,13 @@ const DICT = {
     'relay.notReady': '{name} is not ready',
     'relay.mark': '[Agent Hub · {name}] ',
     'relay.fromAgent': '[Agent Hub · from {name}] ',
-    'relay.desk': '[Agent Hub] Also connected to this hub: {others}. You cannot see or reach them directly — messages travel through the hub.',
+    'relay.desk': '[Agent Hub] Also connected to this hub: {others}. You cannot see or reach them directly — '
+      + 'messages travel through the hub. **If a message needs no reply from you, answer with just "{end}" and '
+      + 'the hub will stop passing things on** (do not answer with "noted" or "standing by" — that keeps them '
+      + 'going back and forth forever).',
+    'relay.endToken': '[END]',
+    'relay.autoEnded': '{name} said the conversation was done — auto-relay stopped.',
+    'relay.autoRepeat': '{name} repeated its previous message word for word — treating that as a loop and stopping.',
     'relay.autoArmed': 'Auto-relay: whichever agent answers, its reply is passed to the other (up to {n} rounds). Type /stop to stop this round.',
     'relay.autoArmedNoLimit': 'Auto-relay: whoever answers, its reply goes to the other. **No round limit** — '
       + 'without /stop it keeps going (measured: 25 rounds in 90 seconds, degrading into "standing by" filler).',

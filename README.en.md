@@ -64,8 +64,17 @@ Pick who you're sending to from the dropdown at the bottom left, type, and press
 they cannot ping-pong forever.
 
 - Forwarded messages carry a `[Agent Hub · from xxx]` prefix, so the receiver knows who wrote it
-- Type `/stop` to end the current round; sending another message starts a new one
-- To turn it off: set `autoRelay` to `false` in `~/.agent-hub/config.json`
+- **When nothing is left to say, answer with just `[END]`** — the hub stops passing things on
+  (this is the main brake against the two of them spinning)
+- A round cap (6 by default) also stops it; `/stop` stops it any time; sending another message
+  starts a new round
+- To turn it off: `autoRelay` = `false` in `~/.agent-hub/config.json`; change the cap with
+  `autoRelayMaxHops` (0 = no cap)
+
+> Why the `[END]` convention: **measured — with no round limit the two agents keep answering each
+> other with "noted", "standing by", "no need to forward" filler** (25 rounds in 90 seconds).
+> Guessing "is there any substance here" from length or keywords kills real conversations, so they
+> get an explicit way to say they are done.
 
 A few commands you can type straight into the input box:
 

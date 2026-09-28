@@ -29,8 +29,21 @@ const wbSessions = require('./wb-sessions');
 const i18n = require('./i18n');
 const t = i18n.t;
 
-class Relay extends EventEmitter {
-  constructor(opts) {
+/**
+ * 「谈完了」的暗号：某个 agent 只回这个，就说明这轮不需要再转下去了。
+ *
+ * 为什么要有这个：agent 之间一旦聊起来，即使没什么可说的也会互相回
+ * "收到""待命""无需转发"这类空话 —— 实测不限轮数时 90 秒能空转 25 轮。
+ * 靠长度或关键词猜"有没有实质内容"很容易误杀，所以给它们一个**明确的结束方式**。
+ */
+function isEndToken(s) {
+  const bare = String(s || '')
+    .replace(/[\s。.!！?？,，、;；:：\[\]【】（）()「」<>《》"'']/g, '')
+    .toUpperCase();
+  return bare === '完' || bare === 'END' || bare === 'STOP' || bare === 'DONE';
+}
+
+class Relay extends EventEmitter {  constructor(opts) {
     super();
     const o = opts || {};
     this.agents = (o.agents || []).filter((a) => a && a.enabled !== false);
@@ -46,6 +59,7 @@ class Relay extends EventEmitter {
     this.autoRelay = o.autoRelay !== false; // 开关（config 里的 autoRelay）
     this.maxHops = Number(o.maxHops) || 0;  // 最多转几轮；**0 = 不限**（只能靠 /stop 停）
     this._buf = {};                         // id → 本轮累积的正文
+    this._lastText = {};                    // id → 上一轮说了什么（查原地打转）
     this._armed = false;                    // 只有用户"发给所有人"才开启
     this._hop = 0;
     // 借用客户端已有的会话（见 app/wb-sessions.js）
@@ -142,8 +156,8 @@ class Relay extends EventEmitter {
 
   /* ---------- 自动接力 ---------- */
 
-  /** 开启（用户点了"所有人"）。轮数计数清零。 */
-  arm() { this._armed = true; this._hop = 0; }
+  /** 开启（用户发了一条消息）。轮数与"上一轮说了什么"都清零。 */
+  arm() { this._armed = true; this._hop = 0; this._lastText = {}; }
   /** 停下（用户发了 /stop，或轮数到顶）。 */
   disarm() { this._armed = false; }
   get armed() { return this._armed; }
@@ -159,7 +173,22 @@ class Relay extends EventEmitter {
     this._buf[id] = '';
     this.emit('turnDone', { from: id, text });
     this._archive({ from: id, kind: 'turnDone' });
-    if (this.autoRelay && this._armed && text) this._forward(id, text);
+    if (!this.autoRelay || !this._armed || !text) return;
+
+    // ① 对方明确说"谈完了" → 停
+    if (isEndToken(text)) {
+      this._armed = false;
+      this.emit('info', t('relay.autoEnded', { name: this.nameOf(id) }));
+      return;
+    }
+    // ② 和它上一轮一字不差 → 判在原地打转（实测空转时会出现这类重复）→ 停
+    if (text === this._lastText[id]) {
+      this._armed = false;
+      this.emit('info', t('relay.autoRepeat', { name: this.nameOf(id) }));
+      return;
+    }
+    this._lastText[id] = text;
+    this._forward(id, text);
   }
 
   /** 把 fromId 这轮的回复转给其他腿；maxHops 为 0 表示不限轮数（只能靠 /stop 停） */
@@ -261,7 +290,7 @@ class Relay extends EventEmitter {
           .filter((a) => a.id !== agentId)
           .map((a) => a.name || a.id);
         this._deskTold[agentId] = true;
-        if (others.length) head = t('relay.desk', { others: others.join(' / ') }) + '\n';
+        if (others.length) head = t('relay.desk', { others: others.join(' / '), end: t('relay.endToken') }) + '\n';
       }
 
       // 自动转来的消息必须写清是谁说的，否则对方只看到一段裸回复，
