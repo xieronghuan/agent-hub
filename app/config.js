@@ -31,6 +31,10 @@ const DEFAULTS = {
   proxy: '',
   // UI language: 'auto' follows the OS locale, or force 'zh' / 'en'
   uiLang: 'auto',
+  // Auto-relay: when you send to "Everyone", each agent's reply is passed on to
+  // the others (bounded by autoRelayMaxHops rounds).
+  autoRelay: true,
+  autoRelayMaxHops: 3,
   // Agents (falls back to app/agents.js when empty)
   agents: DEFAULT_AGENTS,
 };

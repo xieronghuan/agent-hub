@@ -41,6 +41,12 @@ class Relay extends EventEmitter {
     this.markInbound = o.markInbound !== false;
     this._acpBase = null;
     this._deskTold = {};                   // id → 已经交代过"桌上还有谁"
+    // 自动接力：一条腿答完，把它的回复转给其他腿
+    this.autoRelay = o.autoRelay !== false; // 开关（config 里的 autoRelay）
+    this.maxHops = Number(o.maxHops) || 3;  // 最多转几轮，防止来回刷
+    this._buf = {};                         // id → 本轮累积的正文
+    this._armed = false;                    // 只有用户"发给所有人"才开启
+    this._hop = 0;
   }
 
   /* ---------- 留档与状态 ---------- */
@@ -83,7 +89,6 @@ class Relay extends EventEmitter {
     try {
       const link = this._makeLink(def);
       link.on('close', () => this._setStatus(def.id, 'closed'));
-      link.on('turnDone', () => { this.emit('turnDone', { from: def.id }); this._archive({ from: def.id, kind: 'turnDone' }); });
 
       if (def.kind === 'codex-app-server') {
         await link.connect();
@@ -120,13 +125,59 @@ class Relay extends EventEmitter {
       : new WorkBuddyLink(def.base || '');
 
     link.on('delta', (t) => {
+      // 累积本轮正文：自动接力要把"这一轮说了什么"整段转给另一条腿
+      this._buf[def.id] = (this._buf[def.id] || '') + t;
       this.emit('delta', { from: def.id, text: t });
       this._archive({ from: def.id, kind: 'delta', text: t });
     });
+    link.on('turnDone', () => this._onTurnEnd(def.id));
     if (typeof link.on === 'function') {
       link.on('reasoning', (t) => this.emit('reasoning', { from: def.id, text: t }));
     }
     return link;
+  }
+
+  /* ---------- 自动接力 ---------- */
+
+  /** 开启（用户点了"所有人"）。轮数计数清零。 */
+  arm() { this._armed = true; this._hop = 0; }
+  /** 停下（用户发了 /stop，或轮数到顶）。 */
+  disarm() { this._armed = false; }
+  get armed() { return this._armed; }
+
+  nameOf(id) {
+    const a = this.agents.find((x) => x.id === id) || (this.legs.get(id) || {}).def;
+    return (a && (a.name || a.id)) || id;
+  }
+
+  /** 一条腿答完了：先把正文广播出去，再按需转给其他腿 */
+  _onTurnEnd(id) {
+    const text = String(this._buf[id] || '').trim();
+    this._buf[id] = '';
+    this.emit('turnDone', { from: id, text });
+    this._archive({ from: id, kind: 'turnDone' });
+    if (this.autoRelay && this._armed && text) this._forward(id, text);
+  }
+
+  /** 把 fromId 这轮的回复转给其他腿；转过 maxHops 轮就自动停 */
+  async _forward(fromId, text) {
+    for (const a of this.agents) {
+      if (a.id === fromId) continue;
+      if (this._hop >= this.maxHops) {
+        this._armed = false;
+        this.emit('info', t('relay.autoStopped', { n: this.maxHops }));
+        return;
+      }
+      this._hop++;
+      this.emit('info', t('relay.autoForward', {
+        from: this.nameOf(fromId), to: a.name || a.id, n: this._hop, max: this.maxHops,
+      }));
+      // 转发失败要说出来，不能静默吞掉（这里曾被一个 TDZ 错误坑过）
+      const res = await this.send(a.id, text, { from: fromId });
+      if (res && res.ok === false) {
+        this.emit('info', t('relay.autoForwardFailed', { to: a.name || a.id, msg: res.error }));
+      }
+    }
   }
 
   async _discoverAcp() {
@@ -139,15 +190,16 @@ class Relay extends EventEmitter {
 
   /* ---------- 发 ---------- */
 
-  async send(agentId, text) {
+  async send(agentId, text, opts) {
+    const o = opts || {};
     const body = String(text || '');
     if (!body) return { ok: false, error: t('relay.emptyText') };
     const leg = this.legs.get(agentId);
     if (!leg) return { ok: false, error: t('relay.unknownAgent', { id: agentId }) };
     if (!leg.link || leg.status !== 'ready') return { ok: false, error: t('relay.notReady', { name: leg.def.name || agentId }) };
 
-    this._archive({ from: 'user', to: agentId, kind: 'prompt', text: body });
-    this.emit('sent', { to: agentId, text: body });
+    this._archive({ from: o.from || 'user', to: agentId, kind: 'prompt', text: body });
+    this.emit('sent', { to: agentId, text: body, from: o.from || 'user' });
 
     try {
       // Agents cannot see each other, so without being told they simply guess —
@@ -162,13 +214,18 @@ class Relay extends EventEmitter {
         if (others.length) head = t('relay.desk', { others: others.join(' / ') }) + '\n';
       }
 
+      // 自动转来的消息必须写清是谁说的，否则对方只看到一段裸回复，
+      // 不知道是桌上另一个 agent 在跟自己说话。
+      const mark = o.from
+        ? t('relay.fromAgent', { name: this.nameOf(o.from) })
+        : t('relay.mark', { name: leg.def.name || leg.def.id });
+
       if (leg.def.kind === 'codex-app-server') {
-        await leg.link.say(head + body);
+        const prefix = o.from ? mark : '';
+        await leg.link.say(head + prefix + body);
         return { ok: true };
       }
-      // Mark messages injected into an ACP session; otherwise they look exactly
-      // like something the user typed themselves.
-      const mark = t('relay.mark', { name: leg.def.name || leg.def.id });
+      // ACP：注入的正文和用户自己打的字长得一模一样，必须加标记才分得出来
       const marked = this.markInbound ? mark + body : body;
       const r = await leg.link.prompt(head + marked);
       return { ok: true, text: r.text };

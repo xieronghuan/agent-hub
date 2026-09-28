@@ -313,6 +313,7 @@ function helpText() {
     t('help.wsSwitch'),
     t('help.target'),
     t('help.everyone'),
+    t('help.stop'),
     t('help.status'),
     t('help.clear'),
     t('help.help'),
@@ -327,6 +328,11 @@ let _target = null;
 async function handleInput(text, to) {
   if (text === '/help') { log(helpText()); return; }
   if (text === '/clear') { push({ who: 'clear' }); return; }
+  if (text === '/stop') {
+    if (relay && relay.disarm) relay.disarm();
+    log(t('relay.autoOff'));
+    return;
+  }
   if (text === '/status') {
     log(t('boot.status', { json: JSON.stringify(relay ? relay.status() : {}) }));
     log(t('cmd.workspaces', { json: JSON.stringify(wsOf) }));
@@ -364,6 +370,18 @@ async function handleInput(text, to) {
   }
 
   push({ who: 'sys', text: t('cmd.sentTo', { names: targets.map((a) => a.name || a.id).join(', ') }) });
+
+  // Sending to "Everyone" is what starts the auto-relay (so a normal
+  // single-target message never quietly burns tokens); /stop ends it.
+  if (relay.arm && relay.disarm) {
+    if (tgt === ALL && relay.autoRelay) {
+      relay.arm();
+      log(t('relay.autoArmed', { n: relay.maxHops }));
+    } else {
+      relay.disarm();
+    }
+  }
+
   for (const a of targets) {
     const r = await relay.send(a.id, text);
     if (!r.ok) log(t('cmd.sendFailedTo', { name: a.name || a.id, msg: r.error }));
@@ -456,6 +474,8 @@ async function boot() {
     // The archive has to live in the user directory too: __dirname is inside the
     // read-only asar once packaged.
     logFile: ARCHIVE_FILE,
+    autoRelay: cfg.get('autoRelay') !== false,
+    maxHops: Number(cfg.get('autoRelayMaxHops')) || 3,
   });
   relay.on('info', (m) => log(m));
   relay.on('delta', ({ from, text }) => push({ who: from, text }));

@@ -55,7 +55,17 @@ English in Settings.
 ## Usage
 
 Pick who you're sending to from the dropdown at the bottom left, type, and press Enter. Choose
-**Everyone** and one message goes to every agent at once.
+**Everyone** and one message goes to every agent — **and the auto-relay starts** (below).
+
+### Getting them to talk to each other
+
+By default each agent answers you and never sees the others. Picking **Everyone** turns on the
+auto-relay: whoever finishes a turn has its reply passed on to the others, up to 3 rounds (so it
+cannot ping-pong forever).
+
+- Forwarded messages carry a `[Agent Hub · from xxx]` prefix, so the receiver knows who wrote it
+- Type `/stop` to stop at any time
+- To turn the whole thing off, set `autoRelay` to `false` in `~/.agent-hub/config.json`
 
 A few commands you can type straight into the input box:
 
@@ -155,12 +165,11 @@ a lot. The runtime log is at `~/.agent-hub/relay.log`.
 
 **I asked them to "talk to each other" and only one answered** — the agents cannot see each other,
 and that is deliberate: all routing lives in the hub, so each agent believes it is simply talking
-to you. Picking "Everyone" delivers one message to all of them, but they still answer separately
-and never see each other's replies.
+to you. Picking "Everyone" delivers one message to all of them **and starts the auto-relay**, so
+they then really do pass replies back and forth (up to 3 rounds).
 
-To actually get them exchanging content, you carry it across: paste one agent's reply into the
-other. Each agent is told once, on its first message, who else is on the hub — so it no longer
-guesses (and stops inventing a subagent to play the other party).
+Each agent is told once, on its first message, who else is on the hub — so it no longer guesses
+(and stops inventing a subagent to play the other party).
 
 **Codex never connects, or a message produces nothing** — it's almost always the proxy. Fill it in
 under Settings. Startup probes common ports once, but you may have to type it in yourself.
