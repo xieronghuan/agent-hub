@@ -34,7 +34,7 @@ class Relay extends EventEmitter {
     this.legs = new Map();                 // id → { def, link, cwd, status, base }
     this.logFile = o.logFile || path.join(__dirname, 'relay.jsonl');
     this.cwd = o.cwd || process.cwd();
-    this.cwds = o.cwds || {};              // id → 该腿的工作空间（每条腿可不同）
+    this.cwds = o.cwds || {};              // id → 该 agent 的工作空间（每个可不同）
     this.started = false;
     this.markInbound = o.markInbound !== false;
     this._acpBase = null;
@@ -54,7 +54,7 @@ class Relay extends EventEmitter {
     this.emit('status', this.status());
   }
 
-  /** 各腿状态快照，如 { codex:'ready', workbuddy:'error' } */
+  /** 各 agent 状态快照，如 { codex:'ready', workbuddy:'error' } */
   status() {
     const out = {};
     for (const [id, l] of this.legs) out[id] = l.status;
@@ -65,7 +65,7 @@ class Relay extends EventEmitter {
 
   async start() {
     const names = this.agents.map((a) => a.name || a.id).join(', ');
-    this.emit('info', '中继启动，共 ' + this.agents.length + ' 条腿：' + names);
+    this.emit('info', '中继启动，接了 ' + this.agents.length + ' 个 agent：' + names);
     for (const def of this.agents) await this.startLeg(def);
     this.started = true;
     return this.status();
@@ -179,8 +179,8 @@ class Relay extends EventEmitter {
     }
 
     if (leg.def.kind === 'acp') {
-      // ⚠️ 旧 link 断开时会 emit('close')，而那个回调是「把这条腿标成 closed」。
-      // 腿马上要换成新 link，不能被旧连接的善后拖下水 —— 先把它的 close 监听摘掉。
+      // ⚠️ 旧 link 断开时会 emit('close')，而那个回调是「把这个 agent 标成 closed」。
+      // 这个 agent 马上要换成新 link，不能被旧连接的善后拖下水 —— 先把它的 close 监听摘掉。
       const old = leg.link;
       if (old) {
         try { old.removeAllListeners('close'); } catch (_) {}

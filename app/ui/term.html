@@ -182,7 +182,7 @@
     return a ? a.name : id;
   }
 
-  /* 流式正文：同一条腿连续推来的小片段要**接在同一行**。
+  /* 流式正文：同一个 agent 连续推来的小片段要**接在同一行**。
      不接的话，Codex 按字符推 delta 会渲染成「一行一个字」（2026-09-28 用户报的）。 */
   let stream = null;                         // { who, stamp, label, span, text }
   function closeStream() { stream = null; }
@@ -202,7 +202,7 @@
     out.scrollTop = out.scrollHeight;
   }
 
-  /** 流式片段：还是同一条腿就追加到当前行，换人或中间插了别的行就新起一行 */
+  /** 流式片段：还是同一个 agent 就追加到当前行，换人或中间插了别的行就新起一行 */
   function deltaLine(who, text, ts) {
     if (stream && stream.who === who) {
       stream.text += text;

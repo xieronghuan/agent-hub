@@ -168,7 +168,7 @@ function loadSavedWs() {
 let win = null;
 let settingsWin = null;
 const kids = [];
-const wsOf = {};                 // agentId → 该腿的工作空间（每条腿可不同）
+const wsOf = {};                 // agentId → 该 agent 的工作空间（每个可不同）
 let quitting = false;
 let relay = null;
 let acpPorts = [];
@@ -191,7 +191,7 @@ function setStatus(text, statuses) {
 
 function log(msg) { push({ who: 'sys', text: msg }); }
 
-/** 把 agent 清单 + 工作空间列表 + 各腿状态推给界面 */
+/** 把 agent 清单 + 工作空间列表 + 各 agent 状态推给界面 */
 function pushWsList() {
   if (!win || win.isDestroyed()) return;
   const agents = AGENTS.filter((a) => a.enabled !== false).map((a) => ({
@@ -277,7 +277,7 @@ function helpText() {
     '  /ws            列出工作空间',
     '  /ws <编号|路径> 切换当前默认目标的工作空间',
     '  /t <agentId>   切换底栏默认目标',
-    '  /status        看各腿状态',
+    '  /status        看各 agent 状态',
     '  /clear         清屏',
     '  /help          看这条',
     '界面右上角的「设置」「清空留档」是按钮，点就行。',
@@ -292,7 +292,7 @@ async function handleInput(text, to) {
   if (text === '/help') { log(helpText()); return; }
   if (text === '/clear') { push({ who: 'clear' }); return; }
   if (text === '/status') {
-    log('各腿状态：' + JSON.stringify(relay ? relay.status() : {}));
+    log('各 agent 状态：' + JSON.stringify(relay ? relay.status() : {}));
     log('工作空间：' + JSON.stringify(wsOf));
     return;
   }
@@ -319,7 +319,7 @@ async function handleInput(text, to) {
   if (!r.ok) log('发送失败：' + r.error);
 }
 
-/** 切换某条腿的工作空间 */
+/** 切换某个 agent 的工作空间 */
 async function applyWs(agentId, p) {
   wsOf[agentId] = p;
   try { fs.writeFileSync(WS_FILE, p, 'utf8'); } catch (_) {}
@@ -390,7 +390,7 @@ async function boot() {
   acpPorts = await discoverPorts();
   log(acpPorts.length ? '发现端口：' + acpPorts.join(', ') : '没发现可用的 ACP 端口');
 
-  // 3) 起对等中继：所有腿同时接上，路由在中继里
+  // 3) 起对等中继：所有 agent 同时接上，路由在中继里
   log('启动对等中继…');
   relay = new Relay({
     agents: AGENTS,
@@ -408,7 +408,7 @@ async function boot() {
   try {
     const st = await relay.start();
     refreshStatus(st);
-    log('各腿状态：' + JSON.stringify(st));
+    log('各 agent 状态：' + JSON.stringify(st));
     log('底栏选「发给谁」+ 输入回车即可。');
     setTarget((AGENTS.find((a) => st[a.id] === 'ready') || AGENTS[0] || {}).id);
     pushWsList();

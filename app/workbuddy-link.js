@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * codex/bus/workbuddy-link.js —— 中继的「WorkBuddy 腿」
+ * codex/bus/workbuddy-link.js —— 中继里对接 WorkBuddy 的那一端
  *
  * WorkBuddy 侧提供的是 HTTP + ACP（JSON-RPC over HTTP，事件走 SSE）。
  * 本模块把它包装成与 CodexLink 对称的接口，供中继做对等路由。

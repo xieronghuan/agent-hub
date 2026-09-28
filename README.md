@@ -1,6 +1,8 @@
 # Agent Hub
 
-把多个 AI agent 接到同一张桌子上。终端界面，Electron 写的，目前只在 Windows 上跑过。
+把多个 AI agent 放在一个窗口里用。终端界面，Electron 写的，目前只在 Windows 上跑过。
+
+[中文](README.md) · [English](README.en.md)
 
 <img src="docs/screenshot.png" alt="Agent Hub 主界面" width="860">
 
@@ -18,7 +20,7 @@ WorkBuddy  ←— ACP (HTTP + SSE) ——┐
 Codex      ←— WebSocket + RPC ——┘
 ```
 
-顶栏每个 agent 一组「状态灯 + 工作空间下拉」，每条腿可以指到不同的目录；底栏选目标、打字、回车。
+顶栏每个 agent 一组「状态灯 + 工作空间下拉」，各自可以指定不同的目录；底栏选目标、打字、回车。
 历史会记下来，界面上有按钮清空。
 
 ## 装
@@ -50,7 +52,7 @@ npm start
 - `/ws` — 列出工作空间
 - `/ws <编号|路径>` — 切换当前默认目标的工作空间
 - `/t <agentId>` — 切换底栏默认发给谁
-- `/status` — 看各腿状态
+- `/status` — 看各 agent 状态
 - `/clear` — 清屏
 - `/help` — 看帮助
 
@@ -84,12 +86,13 @@ npm start
 
 ## 接新的 agent
 
-整个东西是配置驱动的，中继和界面都照着清单渲染。加一条腿不用碰 `relay-server.js`，也不用碰界面代码。
+整个东西是配置驱动的，中继和界面都照着清单渲染。加一个 agent 不用碰 `relay-server.js`，
+也不用碰界面代码。
 
 配置写在 `~/.agent-hub/config.json` 的 `agents` 数组里。不想动配置文件的话，直接改源码里的
 `app/agents.js` 也行，两边结构一样。
 
-每条腿的字段：
+每个 agent 的字段：
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
@@ -97,7 +100,7 @@ npm start
 | `name` | | 显示名 |
 | `color` | | 这个 agent 的标识色，顶栏圆点和消息正文都用它，两边对应 |
 | `kind` | 是 | 接入方式，见下表 |
-| `enabled` | | 填 `false` 就不启用这条腿 |
+| `enabled` | | 填 `false` 就不启用这个 agent |
 
 `kind` 目前支持三种：
 
@@ -107,7 +110,7 @@ npm start
 | `codex-app-server` | Codex，WebSocket + JSON-RPC | `port`（默认 8899）、`proxy`（一般留空，走全局代理设置） |
 | `openai-compatible` | 预留，任何 OpenAI 兼容的 HTTP 端点 | — |
 
-现在这份配置长这样，两条腿：
+现在这份配置长这样，接了两个 agent：
 
 ```json
 {
@@ -120,8 +123,8 @@ npm start
 }
 ```
 
-要接一个完全不同的 agent 的话：`app/workbuddy-link.js`（HTTP + SSE 那条）和 `app/relay.js`
-（WebSocket + JSON-RPC 那条）就是两个参考实现。照着自己写一个 link，让中继能
+要接一个完全不同的 agent 的话：`app/workbuddy-link.js`（HTTP + SSE 那个）和 `app/relay.js`
+（WebSocket + JSON-RPC 那个）就是两个参考实现。照着自己写一个 link，让中继能
 
 - `connect()` / `init()`
 - 建会话（带上工作空间 `cwd`）
@@ -135,11 +138,15 @@ npm start
 
 **双击 exe 没反应** —— 先看杀毒软件，没签名的 exe 经常被拦。运行日志在 `~/.agent-hub/relay.log`。
 
-**Codex 那条腿一直连不上，或者发消息后不出字** —— 基本都是代理。点「设置」把代理地址填上。
+**Codex 一直连不上，或者发消息后不出字** —— 基本都是代理。点「设置」把代理地址填上。
 启动时会自动探一次常见端口，探不出来就得手填。
 
-**WorkBuddy 那条腿连不上** —— 确认 WorkBuddy 在运行。它的 ACP 端口每次启动都会变，中继是动态发现的，
+**WorkBuddy 连不上** —— 确认 WorkBuddy 在运行。它的 ACP 端口每次启动都会变，中继是动态发现的，
 一般不用管。
+
+**Codex 里提示「已在另一个应用中打开」** —— Codex 对每个会话只允许一个写入者。
+在 Agent Hub 开着的时候，它就占着那个目录的会话。想回 Codex 客户端继续，
+先把 Agent Hub 关掉（或把它的工作空间换到别处）。
 
 **exe 一百兆** —— Electron 就这样，换来的是不用装运行时。先说一声，免得下载的时候惊讶。
 
@@ -155,9 +162,9 @@ npm run pack     # 打包，出 dist/AgentHub.exe
 根目录还有几个手动测试脚本，跑之前要先把对应的服务起起来：
 
 ```bash
-node test-workbuddy-link.js    # 测 ACP 那条腿
-node test-codex-link.js        # 测 Codex 那条腿
-node test-relay.js             # 两条腿各发一句，端到端
+node test-workbuddy-link.js    # 测 WorkBuddy 这条线
+node test-codex-link.js        # 测 Codex 这条线
+node test-relay.js             # 两个 agent 各发一句，端到端
 node debug-acp.js              # 打原始报文，排查用
 ```
 

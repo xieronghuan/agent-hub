@@ -29,7 +29,7 @@ const DEFAULTS = {
   codexCliPath: '',
   // 代理：留空表示「自动探测本机常见端口」，再不行就不带代理启动
   proxy: '',
-  // 各条腿（不填则用 app/agents.js 的内置默认）
+  // 各个 agent（不填则用 app/agents.js 的内置默认）
   agents: DEFAULT_AGENTS,
 };
 
