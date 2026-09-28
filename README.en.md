@@ -230,6 +230,11 @@ every start; the hub discovers it, so you normally don't have to do anything.
 While Agent Hub is running, it holds the conversation for that directory. To go back to the Codex
 client, close Agent Hub first (or point its workspace somewhere else).
 
+> On ports: Agent Hub starts its own codex backend on 8899, and it only ever clears the process
+> it started itself. If the port is already served by something else — your Codex client's own
+> backend, say — it simply uses it and leaves it alone, and quitting Agent Hub leaves it running.
+> The startup log tells you which case you are in.
+
 **The exe is 100 MB** — that's Electron. What you get in return is no runtime to install. Fair
 warning, so the download isn't a surprise.
 

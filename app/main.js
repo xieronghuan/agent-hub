@@ -274,6 +274,57 @@ function killByPort(port) {
   } catch (_) {}
 }
 
+/** Who is listening on this port right now? Returns the pid, or '' if nobody is. */
+function portPid(port) {
+  if (process.platform !== 'win32') return '';
+  try {
+    const out = execSync('netstat -ano', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    for (const line of out.split('\n')) {
+      if (line.indexOf('127.0.0.1:' + port) < 0 || line.indexOf('LISTENING') < 0) continue;
+      const pid = line.trim().split(/\s+/).pop();
+      if (pid && /^\d+$/.test(pid)) return pid;
+    }
+  } catch (_) {}
+  return '';
+}
+
+/**
+ * Remember which pid we started for an agent's port.
+ *
+ * Why this exists: on the next launch we have to tell apart
+ *   ① a leftover from our own run that got force-killed — safe to clear, and we
+ *      want to, because it still holds the conversation's write lock and makes the
+ *      Codex client complain "already open in another app"
+ *   ② a server somebody else is running — the Codex desktop client, for instance.
+ *      That one is none of our business: leave it alone and just use it.
+ * Without a note of our own there is no way to tell, so we only ever clear a port
+ * whose current pid matches what we recorded here.
+ */
+function ownServerFile(agentId) { return path.join(RELAY_ROOT, agentId + '-app.pid'); }
+
+function rememberOwnServer(agentId, pid) {
+  try { fs.writeFileSync(ownServerFile(agentId), String(pid || ''), 'utf8'); } catch (_) {}
+}
+
+function ownServerPid(agentId) {
+  try { return fs.readFileSync(ownServerFile(agentId), 'utf8').trim(); } catch (_) { return ''; }
+}
+
+function forgetOwnServer(agentId) {
+  try { fs.unlinkSync(ownServerFile(agentId)); } catch (_) {}
+}
+
+/** Take down a port — but only if the process on it is still the one we started */
+function killOwnPort(port, agentId) {
+  const mine = ownServerPid(agentId);
+  const cur = portPid(port);
+  if (mine && cur && mine === cur) {
+    push({ who: 'sys', text: t('proc.cleanup', { pid: cur }) });
+    try { spawn('taskkill', ['/PID', cur, '/T', '/F'], { windowsHide: true }); } catch (_) {}
+  }
+  forgetOwnServer(agentId);
+}
+
 function killKids() {
   for (const k of kids) {
     try {
@@ -282,9 +333,11 @@ function killKids() {
     } catch (_) {}
   }
   kids.length = 0;
-  // Take down the listening ports the agents opened as well
-  for (const a of AGENTS) if (a.port) killByPort(a.port);
-  killByPort(Number(process.env.WB_PORT || 8788));
+  // Only take down the listeners WE started. A server the user's own Codex client
+  // is running on the same port has to survive us — killing it would take their
+  // client down with it. (This used to also blind-fire at port 8788, which this
+  // app never started in the first place.)
+  for (const a of AGENTS) if (a.port) killOwnPort(a.port, a.id);
 }
 
 async function waitPort(port, timeoutMs) {
@@ -452,15 +505,26 @@ async function boot() {
     if (!CODEX_CLI) { log(t('boot.legSkipped', { name: a.name })); continue; }
     const lf = path.join(RELAY_ROOT, a.id + '-app.log');
     const px = a.proxy || '';
-    // A previous run that was force-killed (Task Manager / `taskkill /F`) leaves the
-    // app-server alive, holding the port. It also still holds the conversation's
-    // write lock, which makes the Codex client complain "already open in another
-    // app". So clear any leftover before starting a fresh one.
+    // A previous run that was force-killed (Task Manager / `taskkill /F`) leaves OUR
+    // app-server alive, holding the port and the conversation's write lock — that is
+    // what makes the Codex client complain "already open in another app". Clear it.
+    //
+    // If instead the port is held by something we did NOT start (the user's own Codex
+    // client, say), leave it completely alone and simply use it.
     if (portBusy(a.port)) {
-      log(t('boot.portBusy', { name: a.name, port: a.port }));
-      killByPort(a.port);
-      await new Promise((r) => setTimeout(r, 1000));
-      if (quitting) return;
+      const mine = ownServerPid(a.id);
+      const cur = portPid(a.port);
+      if (mine && cur && mine === cur) {
+        log(t('boot.portBusyOwn', { name: a.name, port: a.port, pid: cur }));
+        killByPort(a.port);
+        forgetOwnServer(a.id);
+        await new Promise((r) => setTimeout(r, 1000));
+        if (quitting) return;
+      } else {
+        log(t('boot.portBusyOther', { name: a.name, port: a.port, pid: cur || '?' }));
+        forgetOwnServer(a.id);          // 我们的标记作废，别再拿它当依据
+        continue;                       // 别人的进程，用就好，不碰
+      }
     }
     // Codex needs the proxy, otherwise turns hang forever in inProgress
     const env = px
@@ -469,6 +533,9 @@ async function boot() {
     log(t('boot.startingServer', { name: a.name }));
     spawnRaw(`${env}"${CODEX_CLI}" app-server --listen ws://127.0.0.1:${a.port} > "${lf}" 2>&1`, a.id);
     const up = await waitPort(a.port, 30000);
+    // Note down whose process this is, so a later launch can tell "our leftover" from
+    // "somebody else's server" (and so quitting only takes down what we started).
+    if (up) rememberOwnServer(a.id, portPid(a.port));
     if (quitting) return;
     log(up
       ? t('boot.serverReady', { name: a.name, port: a.port })
