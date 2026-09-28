@@ -36,6 +36,7 @@ const DICT = {
     'ui.userLabel': '我',
     'ui.wsTitle': '{name} 的工作空间',
     'ui.modelTitle': '{name} 用的模型',
+    'ui.effortTitle': '{name} 的思考强度',
     'ui.dotTitle': '{name}：{status}',
 
     /* ---- settings window ---- */
@@ -150,10 +151,25 @@ const DICT = {
     'relay.readyServer': '{name} 就绪（thread={thread}  cwd={cwd}）',
     'relay.readyAcp': '{name} 就绪（{base}  session={session}  cwd={cwd}）',
     'relay.modelNow': '{name} 当前模型：{model}',
-    'relay.modelChanged': '{name} 已换用模型：{model}',
-    'relay.modelNextTurn': '{name} 已换用模型：{model}（下一轮开始生效）',
+    'relay.effortNow': '{name} 思考强度：{value}',
+    'relay.setOk': '{name} 已设置{what}：{value}',
+    'relay.setOkNextTurn': '{name} 已设置{what}：{value}（下一轮生效）',
     'relay.modelsUnavailable': '{name} 没给出模型列表（{msg}），换模型就先别指望了',
-    'relay.modelFailed': '换模型失败：{msg}',
+    'relay.setFailed': '设置没成功：{msg}',
+
+    /* 设置项自己的名字（拼进上面那两句里） */
+    'what.model': '模型',
+    'what.effort': '思考强度',
+
+    /* 强度档位的显示名。接口给的是英文 id，这里按中文习惯说 */
+    'effort.minimal': '最省',
+    'effort.low': '低',
+    'effort.medium': '中',
+    'effort.high': '高',
+    'effort.xhigh': '极高',
+    'effort.max': '最高',
+    'effort.ultra': 'Ultra',
+    'effort.enabled': '跟随模型默认',
     'relay.borrowed': '{name} 接入了客户端已有的会话：{session}',
     'relay.borrowUnconfirmed': '{name} 试着接入客户端已有的会话 {session}（主机没回执，**是否真接上未确认**）',
     'relay.borrowFailed': '借用会话 {session} 失败（{msg}），改用新建',
@@ -203,6 +219,7 @@ const DICT = {
     'ui.userLabel': 'you',
     'ui.wsTitle': '{name} workspace',
     'ui.modelTitle': 'Model used by {name}',
+    'ui.effortTitle': 'Reasoning effort for {name}',
     'ui.dotTitle': '{name}: {status}',
 
     /* ---- settings window ---- */
@@ -317,10 +334,23 @@ const DICT = {
     'relay.readyServer': '{name} ready (thread={thread}  cwd={cwd})',
     'relay.readyAcp': '{name} ready ({base}  session={session}  cwd={cwd})',
     'relay.modelNow': '{name} current model: {model}',
-    'relay.modelChanged': '{name} switched to model: {model}',
-    'relay.modelNextTurn': '{name} switched to model: {model} (takes effect on the next turn)',
+    'relay.effortNow': '{name} reasoning effort: {value}',
+    'relay.setOk': '{name} set {what} to {value}',
+    'relay.setOkNextTurn': '{name} set {what} to {value} (takes effect on the next turn)',
     'relay.modelsUnavailable': '{name} did not return a model list ({msg})',
-    'relay.modelFailed': 'Switching model failed: {msg}',
+    'relay.setFailed': 'Setting failed: {msg}',
+
+    'what.model': 'model',
+    'what.effort': 'reasoning effort',
+
+    'effort.minimal': 'Minimal',
+    'effort.low': 'Low',
+    'effort.medium': 'Medium',
+    'effort.high': 'High',
+    'effort.xhigh': 'Extra high',
+    'effort.max': 'Max',
+    'effort.ultra': 'Ultra',
+    'effort.enabled': 'Model default',
     'relay.borrowed': '{name} attached to the session the client already shows: {session}',
     'relay.borrowUnconfirmed': '{name} tried to attach to the client session {session} (the host sent no receipt — **unconfirmed**)',
     'relay.borrowFailed': 'Could not attach to session {session} ({msg}); opening a new one instead',

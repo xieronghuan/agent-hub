@@ -28,6 +28,7 @@
   .wspick:hover{border-color:#4a4a4a}
   .wspick:focus{border-color:var(--accent)}
   .modelpick{min-width:80px;max-width:160px;font-size:11px;padding:2px 4px}
+  .effortpick{min-width:56px;max-width:110px;font-size:11px;padding:2px 4px}
   #status{margin-left:auto;color:var(--dim);white-space:nowrap}
   #acts{display:flex;align-items:center;gap:6px}
   .btn{background:#242424;color:#ddd;border:1px solid #3a3a3a;border-radius:5px;
@@ -81,7 +82,7 @@
 
   let AGENTS = [];                              // [{id,name,color,cwd}]
   const wsSelByAgent = {};                      // id → <select>
-  const modelSelByAgent = {};                   // id → 模型 <select>
+  const configSelByAgent = {};                  // id → { model:<select>, effort:<select> }
   const dotByAgent = {};                        // id → 圆点元素
 
   /* ---------- 颜色：每个 agent 一个标识色，圆点与正文共用 ---------- */
@@ -123,15 +124,24 @@
       box.appendChild(sel);
       wsSelByAgent[a.id] = sel;
 
-      // 模型下拉：只有 ACP 腿（拿到了模型信息）才显示
+      // 模型下拉 + 强度下拉：拿不到信息的腿就不显示
       const msel = document.createElement('select');
       msel.className = 'wspick modelpick';
       msel.title = T('ui.modelTitle', { name: a.name });
       msel.addEventListener('change', function () {
-        if (window.term) window.term.setModel(a.id, msel.value);
+        if (window.term) window.term.setConfig(a.id, 'model', msel.value);
       });
       box.appendChild(msel);
-      modelSelByAgent[a.id] = msel;
+      configSelByAgent[a.id] = { model: msel };
+
+      const esel = document.createElement('select');
+      esel.className = 'wspick effortpick';
+      esel.title = T('ui.effortTitle', { name: a.name });
+      esel.addEventListener('change', function () {
+        if (window.term) window.term.setConfig(a.id, 'effort', esel.value);
+      });
+      box.appendChild(esel);
+      configSelByAgent[a.id].effort = esel;
 
       legsEl.appendChild(box);
     });
@@ -199,16 +209,25 @@
     });
   }
 
-  /** 填模型下拉：models[agentId] = { value, label, choices:[{value,name}] }；没有就隐藏 */
-  function fillModel(sel, info) {
+  /* 强度档位的名字按当前语言说（接口给的是英文 id：low/xhigh/ultra…），
+     字典里没有的档位就退回接口给的原文，不硬编。 */
+  function effortLabel(c) {
+    const k = 'effort.' + c.value;
+    const s = T(k);
+    return s === k ? (c.name || c.value) : s;
+  }
+
+  /** 填一个设置下拉：info = { value, label, choices:[{value,name}] }；没有就隐藏 */
+  function fillConfig(sel, info, isEffort) {
     if (!sel) return;
-    if (!info) { sel.style.display = 'none'; sel.innerHTML = ''; return; }
+    if (!info || !(info.choices || []).length) { sel.style.display = 'none'; sel.innerHTML = ''; return; }
     sel.style.display = '';
     sel.innerHTML = '';
-    (info.choices || []).forEach(function (c) {
+    info.choices.forEach(function (c) {
       const o = document.createElement('option');
       o.value = c.value;
-      o.textContent = c.name || c.value;
+      o.textContent = isEffort ? effortLabel(c) : (c.name || c.value);
+      o.title = c.description || o.textContent;
       if (c.value === info.value) o.selected = true;
       sel.appendChild(o);
     });
@@ -294,7 +313,12 @@
       renderLegs();
       renderTargets();
       AGENTS.forEach(function (a) { fillWs(wsSelByAgent[a.id], d.list || [], a.cwd); });
-      AGENTS.forEach(function (a) { fillModel(modelSelByAgent[a.id], (d.models || {})[a.id]); });
+      AGENTS.forEach(function (a) {
+        const cfg = (d.configs || {})[a.id] || {};
+        const sels = configSelByAgent[a.id] || {};
+        fillConfig(sels.model, cfg.model, false);
+        fillConfig(sels.effort, cfg.effort, true);
+      });
       applyStatuses(d.statuses);
     });
   } else {

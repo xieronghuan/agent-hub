@@ -52,17 +52,22 @@ file. No docs needed.
 The interface is bilingual: it follows your system language, and you can pin it to Chinese or
 English in Settings.
 
-## Which model is it using
+## Which model, and how hard it thinks
 
-Every agent in the top bar has a model dropdown next to its name. It shows the model in use and
-lets you switch without restarting.
+Every agent in the top bar has two dropdowns next to its name: the model, and the reasoning effort.
+Both can be changed without restarting.
 
-- WorkBuddy: 20 options (the same ones the client offers: Fast / Balanced / Max / GLM / Kimi /
-  Deepseek…), takes effect immediately
-- Codex: 5 options (GPT-6-Astra / GPT-5.6-Sol / Terra / Luna / GPT-5.5), **effective from the next
-  turn** — Codex picks its model per turn, so switching keeps the thread and its context intact
+- WorkBuddy: 20 models (the same ones the client offers: Fast / Balanced / Max / GLM / Kimi /
+  Deepseek…) and 7 effort levels (Minimal / Low / Medium / High / Extra high / Max / Model
+  default). **Effective immediately**
+- Codex: 5 models (GPT-6-Astra / GPT-5.6-Sol / Terra / Luna / GPT-5.5) and 6 effort levels
+  (Low / Medium / High / Extra high / Max / Ultra). **Effective from the next turn** — Codex takes
+  both per turn, so switching keeps the thread and its context intact
 
-The current model for each side is also printed in the startup log.
+The startup log prints the current model and effort for each side.
+
+> Heads-up: on the WorkBuddy side this changes **your** session — the hub borrows the one the client
+> is already using, so a switch here shows up in the WorkBuddy client too.
 
 ## Usage
 

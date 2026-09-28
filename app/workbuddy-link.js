@@ -142,16 +142,56 @@ class WorkBuddyLink extends EventEmitter {
   }
 
   /**
-   * 改一个会话设置（如 model / thought_level）。实测可用的方法是
-   * session/set_config_option —— session/setConfigOption、set_option 都不存在。
+   * 思考强度。ACP 这边的设置名叫 thought_level
+   * （Minimal / Low / Medium / High / X-High / Max / On）。
+   * 万一以后改名，就按"id 里带这些词"兜一下，别写死一个字符串。
+   */
+  _effortOption() {
+    const list = this.configOptions || [];
+    return list.find((c) => c.id === 'thought_level')
+      || list.find((c) => /thought|effort|reasoning/i.test(c.id || ''))
+      || null;
+  }
+
+  effortInfo() {
+    const o = this._effortOption();
+    if (!o) return null;
+    const choices = (o.options || []).map((x) => ({ value: x.value, name: x.name, description: x.description || '' }));
+    const cur = choices.find((c) => c.value === o.currentValue) || choices[0];
+    if (!cur) return null;
+    return { value: cur.value, label: cur.name, choices };
+  }
+
+  /** 中继统一按 configId 向两条腿要设置项 */
+  configInfo() {
+    const out = {};
+    const m = this.currentModel();
+    if (m) out.model = { value: m.value, label: m.label, choices: this.modelChoices() };
+    const e = this.effortInfo();
+    if (e) out.effort = { value: e.value, label: e.label, choices: e.choices };
+    return out;
+  }
+
+  /**
+   * 改一个会话设置。实测可用的方法是 session/set_config_option
+   * —— session/setConfigOption、set_option 都不存在。
    * 成功后主机回推 config_option_update，缓存随之更新。
+   *
+   * 对外统一叫 'model' / 'effort'，ACP 这边真实的 id 是 model / thought_level，
+   * 在这里翻译一次，免得调用方去记两套名字。
    */
   async setConfigOption(configId, value) {
     if (!this.sessionId) throw new Error('还没有会话');
-    const res = await this.rpc('session/set_config_option', { sessionId: this.sessionId, configId, value });
+    let realId = configId;
+    if (configId === 'effort') {
+      const o = this._effortOption();
+      if (!o) return null;
+      realId = o.id;
+    }
+    const res = await this.rpc('session/set_config_option', { sessionId: this.sessionId, configId: realId, value });
     this._absorbConfigOptions(res.events);
     if (res.error) throw new Error('set_config_option 报错：' + JSON.stringify(res.error).slice(0, 200));
-    return this.configValue(configId);
+    return configId === 'effort' ? this.effortInfo() : this.configValue(realId);
   }
 
   /* ---------- 会话 ---------- */

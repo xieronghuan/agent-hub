@@ -118,11 +118,7 @@ class Relay extends EventEmitter {  constructor(opts) {
         } catch (e) {
           this.emit('info', t('relay.modelsUnavailable', { name: def.name, msg: e.message }));
         }
-        const cm = link.currentModel && link.currentModel();
-        if (cm) {
-          leg.model = cm.value;
-          this.emit('info', t('relay.modelNow', { name: def.name, model: cm.label }));
-        }
+        this._reportConfig(link, def);
       } else if (def.kind === 'acp') {
         const base = def.base || await this._discoverAcp(cwd);
         if (!base) throw new Error(t('relay.noAcp'));
@@ -133,11 +129,7 @@ class Relay extends EventEmitter {  constructor(opts) {
         await link.startEvents();
         const sid = await this._openSession(link, def, cwd);
         this.emit('info', t('relay.readyAcp', { name: def.name, base, session: sid, cwd }));
-        const m = link.currentModel && link.currentModel();
-        if (m) {
-          leg.model = m.value;
-          this.emit('info', t('relay.modelNow', { name: def.name, model: m.label }));
-        }
+        this._reportConfig(link, def);
       } else {
         throw new Error(t('relay.unsupportedKind', { kind: def.kind }));
       }
@@ -283,32 +275,52 @@ class Relay extends EventEmitter {  constructor(opts) {
     return this._acpBase;
   }
 
-  /** 当前各 agent 的模型。两条腿都提供 currentModel()/modelChoices()，这里不按 kind 分支 */
-  modelInfo() {
+  /** 各 agent 的设置项（模型、强度…）。两条腿各自实现 configInfo()，这里不按 kind 分支 */
+  configInfo() {
     const out = {};
     for (const [id, l] of this.legs) {
-      if (!l.link || !l.link.currentModel) continue;
-      const m = l.link.currentModel();
-      if (!m) continue;
-      out[id] = { value: m.value, label: m.label, choices: l.link.modelChoices ? l.link.modelChoices() : [] };
+      if (!l.link || !l.link.configInfo) continue;
+      const info = l.link.configInfo();
+      if (info && (info.model || info.effort)) out[id] = info;
     }
     return out;
   }
 
+  /** 强度档位按当前语言说（接口给的是 low/xhigh/ultra 这类英文 id；字典没有就退回原文） */
+  _effortLabel(info) {
+    if (!info) return '';
+    const k = 'effort.' + info.value;
+    const s = t(k);
+    return s === k ? (info.label || info.value) : s;
+  }
+
   /**
-   * 换某个 agent 用的模型。
-   * ACP 腿走 session/set_config_option（立刻生效）；Codex 腿是"下一轮带上去"（见 relay.js）。
+   * 把一条腿的设置项打进日志（启动时用）。
+   * ⚠️ 要**传 link**，不能从 leg 上取 —— 启动阶段 leg.link 还没赋值，
+   * 写成 leg.link 会静默什么都不打（截图才发现的问题）。
+   */
+  _reportConfig(link, def) {
+    const info = link && link.configInfo ? link.configInfo() : null;
+    if (!info) return;
+    if (info.model) this.emit('info', t('relay.modelNow', { name: def.name, model: info.model.label }));
+    if (info.effort) this.emit('info', t('relay.effortNow', { name: def.name, value: this._effortLabel(info.effort) }));
+  }
+
+  /**
+   * 改某个 agent 的设置（configId 统一为 'model' / 'effort'）。
+   * ACP 腿改完立刻生效；Codex 腿是"下一轮带上去"（模型和强度都是按轮传的）。
    */
   async setConfig(agentId, configId, value) {
     const leg = this.legs.get(agentId);
     if (!leg || !leg.link || !leg.link.setConfigOption) return null;
-    const m = await leg.link.setConfigOption(configId, value);
-    if (!m) return null;
-    leg.model = m.value;
+    const got = await leg.link.setConfigOption(configId, value);
+    if (!got) return null;
+    const what = t(configId === 'effort' ? 'what.effort' : 'what.model');
+    const shown = configId === 'effort' ? this._effortLabel(got) : got.label;
     this.emit('info', leg.def.kind === 'codex-app-server'
-      ? t('relay.modelNextTurn', { name: leg.def.name, model: m.label })
-      : t('relay.modelChanged', { name: leg.def.name, model: m.label }));
-    return m;
+      ? t('relay.setOkNextTurn', { name: leg.def.name, what, value: shown })
+      : t('relay.setOk', { name: leg.def.name, what, value: shown }));
+    return got;
   }
 
   /* ---------- 发 ---------- */
@@ -373,8 +385,6 @@ class Relay extends EventEmitter {  constructor(opts) {
 
     if (leg.def.kind === 'codex-app-server') {
       await leg.link.startThread(cwd, { sandbox: 'read-only' });   // cwd 变了必须新开 thread
-      const cm = leg.link.currentModel && leg.link.currentModel();
-      if (cm) leg.model = cm.value;
       this.emit('info', t('relay.switchedThread', { name: leg.def.name, cwd, thread: leg.link.threadId }));
       return leg.link.threadId;
     }

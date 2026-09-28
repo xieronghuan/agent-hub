@@ -35,7 +35,7 @@ contextBridge.exposeInMainWorld('term', {
   onStatus: (cb) => ipcRenderer.on('term-status', (_e, s) => cb(s)),
   onWsList: (cb) => ipcRenderer.on('term-wslist', (_e, d) => cb(d)),
   selectWs: (side, p) => ipcRenderer.send('term-selectws', { side, path: p }),
-  setModel: (side, value) => ipcRenderer.send('term-setmodel', { side, value }),
+  setConfig: (side, config, value) => ipcRenderer.send('term-setconfig', { side, config, value }),
   send: (payload) => ipcRenderer.send('term-send', payload),
   clearLog: () => ipcRenderer.invoke('log-clear'),
   openSettings: () => ipcRenderer.invoke('cfg-open'),

@@ -234,9 +234,9 @@ function pushWsList() {
     id: a.id, name: a.name || a.id, color: a.color || '', cwd: wsOf[a.id] || '',
   }));
   const statuses = relay ? relay.status() : {};
-  // ACP 腿把当前模型和可选项一起带给界面（Codex 腿没有这个信息，界面上就不显示下拉）
-  const models = relay && relay.modelInfo ? relay.modelInfo() : {};
-  try { win.webContents.send('term-wslist', { agents, list: workspaces, statuses, models }); } catch (_) {}
+  // 每条腿的会话设置（模型、思考强度）一起带给界面；拉不到就不显示那一栏
+  const configs = relay && relay.configInfo ? relay.configInfo() : {};
+  try { win.webContents.send('term-wslist', { agents, list: workspaces, statuses, configs }); } catch (_) {}
 }
 
 /** The status bar only reports how many are connected; details are the lights */
@@ -608,13 +608,13 @@ ipcMain.on('term-selectws', async (_e, d) => {
   await applyWs(d.side, d.path);
 });
 
-/** 换某个 agent 的模型（ACP 腿）；成功后模型信息会随下一次 pushWsList 刷新 */
-ipcMain.on('term-setmodel', async (_e, d) => {
-  if (!d || !d.side || !d.value) return;
+/** 改某个 agent 的设置（模型 / 思考强度）；成功后设置信息随下一次 pushWsList 刷新 */
+ipcMain.on('term-setconfig', async (_e, d) => {
+  if (!d || !d.side || !d.config || !d.value) return;
   try {
-    await relay.setConfig(d.side, 'model', d.value);
+    await relay.setConfig(d.side, d.config, d.value);
   } catch (e) {
-    log(t('relay.modelFailed', { msg: e.message }));
+    log(t('relay.setFailed', { msg: e.message }));
   }
   pushWsList();
 });

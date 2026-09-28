@@ -41,7 +41,17 @@ class CodexLink extends EventEmitter {
     const data = (r && r.data) || [];
     this.models = data
       .filter((m) => m && (m.id || m.model) && !m.hidden)
-      .map((m) => ({ value: m.id || m.model, name: m.displayName || m.id || m.model }));
+      .map((m) => ({
+        value: m.id || m.model,
+        name: m.displayName || m.id || m.model,
+        // 每个模型支持哪些强度是**随模型变的**，所以跟模型一起存
+        efforts: (m.supportedReasoningEfforts || []).map((e) => ({
+          value: e.reasoningEffort,
+          name: e.reasoningEffort,
+          description: e.description || '',
+        })),
+        defaultEffort: m.defaultReasoningEffort || '',
+      }));
     return this.models;
   }
 
@@ -52,19 +62,53 @@ class CodexLink extends EventEmitter {
     return { value: this.model, label: (m && m.name) || this.model };
   }
 
-  modelChoices() { return this.models; }
+  modelChoices() { return this.models.map((m) => ({ value: m.value, name: m.name })); }
+
+  _modelEntry(id) { return this.models.find((x) => x.value === (id || this.model)) || null; }
+
+  /** 当前强度 + 这个模型支持哪些强度（低/中/高/极高/最高/Ultra） */
+  effortInfo() {
+    const entry = this._modelEntry();
+    const choices = (entry && entry.efforts) || [];
+    if (!choices.length) return null;
+    const cur = choices.find((c) => c.value === this.effort) || choices.find((c) => c.value === entry.defaultEffort) || choices[0];
+    return { value: cur.value, label: cur.name, choices };
+  }
 
   /**
-   * 换模型。Codex 是**按轮**指定模型的（turn/start 的 params.model），
+   * 换模型 / 换强度。Codex 这两样都是**按轮**传的（turn/start 的 params.model / params.effort），
    * 所以这里只记住，下一轮说的时候带上 —— 不用重开会话，上下文不丢。
    *
-   * 已实测确认真的生效：turn/start 带 gpt-6-astra 之后，codex 自己的落盘记录
-   * （~/.codex/sessions 下的 rollout-*.jsonl）里那轮的 turn_context 就是 gpt-6-astra。
+   * 已实测确认真的生效：用 codex 自己的落盘记录核验过
+   * （~/.codex/sessions 下的 rollout-*.jsonl，那轮的 turn_context 里 model 和 effort 都对得上）。
    */
   async setConfigOption(configId, value) {
-    if (configId !== 'model') return null;
-    this.model = value;
-    return this.currentModel();
+    if (configId === 'model') {
+      this.model = value;
+      // 换了模型，强度可选项跟着变；旧的不被新模型支持就退回新模型的默认值，
+      // 不然会把一个无效强度发上去
+      const entry = this._modelEntry(value);
+      const ok = entry && (entry.efforts || []).some((e) => e.value === this.effort);
+      if (!ok) this.effort = (entry && entry.defaultEffort) || ((entry && entry.efforts[0] || {}).value) || null;
+      return this.currentModel();
+    }
+    if (configId === 'effort') {
+      const info = this.effortInfo();
+      if (!info || !info.choices.some((c) => c.value === value)) return info;
+      this.effort = value;
+      return this.effortInfo();
+    }
+    return null;
+  }
+
+  /** 设置项的通用读取：中继统一按 configId 问，两条腿各自实现 */
+  configInfo() {
+    const model = this.currentModel();
+    const effort = this.effortInfo();
+    const out = {};
+    if (model) out.model = { value: model.value, label: model.label, choices: this.modelChoices() };
+    if (effort) out.effort = { value: effort.value, label: effort.label, choices: effort.choices };
+    return out;
   }
 
   /* ---------- 连接 ---------- */
@@ -185,6 +229,7 @@ class CodexLink extends EventEmitter {
     if (this.model && !params.model) params.model = this.model;
     const r = await this.rpc('thread/start', params);
     if (r && r.model) { this.model = r.model; this.modelProvider = r.modelProvider || null; }
+    if (r && r.reasoningEffort) this.effort = r.reasoningEffort;
     const id = (r && (r.threadId || (r.thread && r.thread.id) || (r.thread && r.thread.threadId))) || null;
     if (!id) throw new Error('thread/start 未返回 threadId，原始返回：' + JSON.stringify(r).slice(0, 300));
     this.threadId = id;
@@ -205,8 +250,9 @@ class CodexLink extends EventEmitter {
       threadId: this.threadId,
       input: [{ type: 'text', text: String(text) }],
     };
-    // 模型是按轮传的：用户换过就带上，没换过就用服务端默认
+    // 模型和强度都是按轮传的：用户换过就带上，没换过就用服务端默认
     if (this.model) params.model = this.model;
+    if (this.effort) params.effort = this.effort;
     return this.rpc('turn/start', params, 15000);
   }
 
