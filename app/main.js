@@ -380,7 +380,9 @@ async function handleInput(text, to) {
     relay.arm();
     if (!autoHintShown) {
       autoHintShown = true;
-      log(t('relay.autoArmed', { n: relay.maxHops }));
+      log(relay.maxHops > 0
+        ? t('relay.autoArmed', { n: relay.maxHops })
+        : t('relay.autoArmedNoLimit'));
     }
   }
 
@@ -477,7 +479,7 @@ async function boot() {
     // read-only asar once packaged.
     logFile: ARCHIVE_FILE,
     autoRelay: cfg.get('autoRelay') !== false,
-    maxHops: Number(cfg.get('autoRelayMaxHops')) || 3,
+    maxHops: Number(cfg.get('autoRelayMaxHops') || 0),   // 0 = 不限轮数
     borrowClientSession: cfg.get('borrowClientSession') !== false,
   });
   relay.on('info', (m) => log(m));

@@ -115,9 +115,19 @@ class WorkBuddyLink extends EventEmitter {
     return id;
   }
 
+  /**
+   * 接进一条已有会话（"借用"客户端正在用的那条）。
+   *
+   * ⚠️ 必须要求主机**真的返回 sessionId**：以前没拿到返回时会沿用请求的 id，
+   * 于是"看起来接上了"，其实主机可能根本没接受。宁可抛错让上层回退新建。
+   */
   async loadSession(sessionId, cwd) {
     const res = await this.rpc('session/load', { sessionId, cwd: cwd || undefined, mcpServers: [] });
-    const id = (res.result && (res.result.sessionId || res.result.session_id)) || sessionId;
+    const id = res.result && (res.result.sessionId || res.result.session_id);
+    if (!id) {
+      throw new Error('session/load 未返回 sessionId：'
+        + JSON.stringify(res.result || res.error || {}).slice(0, 200));
+    }
     this.sessionId = id;
     return id;
   }

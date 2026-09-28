@@ -24,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 const { CodexLink } = require('./relay');
 const { WorkBuddyLink } = require('./workbuddy-link');
-const { discoverPorts } = require('./discover');
+const { discoverPorts, portHints } = require('./discover');
 const wbSessions = require('./wb-sessions');
 const i18n = require('./i18n');
 const t = i18n.t;
@@ -44,7 +44,7 @@ class Relay extends EventEmitter {
     this._deskTold = {};                   // id → 已经交代过"桌上还有谁"
     // 自动接力：一条腿答完，把它的回复转给其他腿
     this.autoRelay = o.autoRelay !== false; // 开关（config 里的 autoRelay）
-    this.maxHops = Number(o.maxHops) || 3;  // 最多转几轮，防止来回刷
+    this.maxHops = Number(o.maxHops) || 0;  // 最多转几轮；**0 = 不限**（只能靠 /stop 停）
     this._buf = {};                         // id → 本轮累积的正文
     this._armed = false;                    // 只有用户"发给所有人"才开启
     this._hop = 0;
@@ -99,7 +99,7 @@ class Relay extends EventEmitter {
         await link.startThread(cwd, { sandbox: 'read-only' });
         this.emit('info', t('relay.readyServer', { name: def.name, thread: link.threadId, cwd }));
       } else if (def.kind === 'acp') {
-        const base = def.base || await this._discoverAcp();
+        const base = def.base || await this._discoverAcp(cwd);
         if (!base) throw new Error(t('relay.noAcp'));
         link.base = base;
         leg.base = base;
@@ -162,11 +162,11 @@ class Relay extends EventEmitter {
     if (this.autoRelay && this._armed && text) this._forward(id, text);
   }
 
-  /** 把 fromId 这轮的回复转给其他腿；转过 maxHops 轮就自动停 */
+  /** 把 fromId 这轮的回复转给其他腿；maxHops 为 0 表示不限轮数（只能靠 /stop 停） */
   async _forward(fromId, text) {
     for (const a of this.agents) {
       if (a.id === fromId) continue;
-      if (this._hop >= this.maxHops) {
+      if (this.maxHops > 0 && this._hop >= this.maxHops) {
         this._armed = false;
         this.emit('info', t('relay.autoStopped', { n: this.maxHops }));
         return;
@@ -204,11 +204,35 @@ class Relay extends EventEmitter {
     return link.newSession(cwd);
   }
 
-  async _discoverAcp() {
+  /**
+   * 挑一个 ACP 入口。
+   *
+   * ⚠️ 以前是无脑取端口号最小的那个 —— 但 WorkBuddy 的 ACP 有好几个入口，
+   * 其中一个是 CLI host，**它自己的进程就在临时目录里**，agent 在里面干活会找不到用户的文件。
+   * 所以按「这个入口的会话记着哪个目录」来挑：
+   *   ① 目录正好是我们要的 → 用它
+   *   ② 目录是真实目录（不是临时目录） → 用它
+   *   ③ 都没有 → 只能退回端口最小的那个，并明确警告
+   */
+  async _discoverAcp(wantCwd) {
     if (this._acpBase) return this._acpBase;
     const ports = await discoverPorts();
     if (!ports.length) return null;
-    this._acpBase = 'http://127.0.0.1:' + ports[0];
+
+    const hints = portHints();
+    const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const isTemp = (p) => /[\\/](Temp|tmp|workbuddy-host-cli|__workbuddy_cli_host__)([\\/]|$)/i.test(String(p || ''));
+    const want = norm(wantCwd);
+
+    const pick = ports.find((p) => hints[p] && !isTemp(hints[p]) && norm(hints[p]) === want)
+      || ports.find((p) => hints[p] && !isTemp(hints[p]))
+      || ports[0];
+
+    this._acpBase = 'http://127.0.0.1:' + pick;
+    this.emit('info', t('relay.acpPick', { port: pick, cwd: hints[pick] || t('relay.acpUnknownCwd') }));
+    if (!hints[pick] || isTemp(hints[pick])) {
+      this.emit('info', t('relay.acpTempWarn'));
+    }
     return this._acpBase;
   }
 
@@ -286,7 +310,7 @@ class Relay extends EventEmitter {
         try { old.removeAllListeners('close'); } catch (_) {}
         try { old.disconnect(); } catch (_) {}
       }
-      const base = leg.base || await this._discoverAcp();
+      const base = leg.base || await this._discoverAcp(cwd);
       const link = this._makeLink(Object.assign({}, leg.def, { base }));
       await link.connect();
       await link.init();

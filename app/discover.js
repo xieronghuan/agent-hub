@@ -61,6 +61,33 @@ async function discoverPorts() {
 }
 
 /**
+ * 端口 → 那条会话的工作目录（同一端口取心跳最新的一条）。
+ *
+ * 为什么要这个：WorkBuddy 的 ACP 有多个入口，其中一个是 CLI host，
+ * **它自己的进程就在临时目录里**。连到它，agent 看到的工作目录就是临时目录，
+ * 跟用户在界面上选的目录对不上。有了这张表就能优先挑"目录对得上"的入口。
+ */
+function portHints() {
+  const out = {};
+  const stamp = {};
+  try {
+    for (const f of fs.readdirSync(SESSION_DIR)) {
+      if (!f.endsWith('.json')) continue;
+      try {
+        const j = JSON.parse(fs.readFileSync(path.join(SESSION_DIR, f), 'utf8'));
+        const m = /:(\d+)\s*$/.exec(String(j.endpoint || j.url || ''));
+        const cwd = j.cwd;
+        if (!m || !cwd) continue;
+        const port = m[1];
+        const hb = j.lastHeartbeat || 0;
+        if (!(port in out) || hb > (stamp[port] || 0)) { out[port] = cwd; stamp[port] = hb; }
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return out;
+}
+
+/**
  * 挑一个用于「后台会话」的 ACP 端口。
  * 排除桌面端会话端口（那些注进去会变成用户可见的前台消息，不适合后台任务）。
  * 做法：把候选按「是否等于给定的排除列表」过滤，剩下的取第一个。
@@ -72,4 +99,4 @@ async function pickBackendPort(excludePorts) {
   return left.length ? left[0] : (all[0] || null);
 }
 
-module.exports = { discoverPorts, pickBackendPort, probe };
+module.exports = { discoverPorts, pickBackendPort, probe, portHints };

@@ -34,7 +34,7 @@ const DEFAULTS = {
   // Auto-relay: when you send to "Everyone", each agent's reply is passed on to
   // the others (bounded by autoRelayMaxHops rounds).
   autoRelay: true,
-  autoRelayMaxHops: 3,
+  autoRelayMaxHops: 0,   // 0 = 不限轮数（只能靠 /stop 停）；填正数则到顶自动停
   // Attach to the WorkBuddy conversation the desktop client already shows for a
   // folder, instead of a new session the client never lists.
   borrowClientSession: true,
