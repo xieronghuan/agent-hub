@@ -76,22 +76,22 @@ Pick who you're sending to from the dropdown at the bottom left, type, and press
 
 ### Getting them to talk to each other
 
-**The auto-relay is on by default.** Send a message to either agent: when it finishes, its reply is
-**passed to the other one automatically**, which answers back — up to 3 rounds, then it stops so
-they cannot ping-pong forever.
+**The auto-relay is on by default, with no round limit.** Send a message to either agent: when it
+finishes, its reply is **passed to the other one automatically**, that one answers, and so on. You
+do not have to sit there watching it.
 
 - Forwarded messages carry a `[Agent Hub · from xxx]` prefix, so the receiver knows who wrote it
-- **When nothing is left to say, answer with just `[END]`** — the hub stops passing things on
-  (this is the main brake against the two of them spinning)
-- A round cap (6 by default) also stops it; `/stop` stops it any time; sending another message
-  starts a new round
-- To turn it off: `autoRelay` = `false` in `~/.agent-hub/config.json`; change the cap with
-  `autoRelayMaxHops` (0 = no cap)
+- **When there is nothing left to say, answer with just `[END]`** — the hub stops passing things on.
+  This is how the two of them wrap up on their own
+- `/stop` cuts it short at any point; sending another message starts fresh
+- To turn it off: `autoRelay` = `false` in `~/.agent-hub/config.json`. To cap it instead, give
+  `autoRelayMaxHops` a positive number (`0`, the default, means uncapped)
 
-> Why the `[END]` convention: **measured — with no round limit the two agents keep answering each
-> other with "noted", "standing by", "no need to forward" filler** (25 rounds in 90 seconds).
+> Why the `[END]` convention: **measured — with nothing limiting them, the two agents keep answering
+> each other with "noted", "standing by", "no need to forward" filler** (25 rounds in 90 seconds).
 > Guessing "is there any substance here" from length or keywords kills real conversations, so they
-> get an explicit way to say they are done.
+> get an explicit way to say they are done. There is a second brake as well: if a leg repeats its
+> previous message word for word, the hub reads that as going in circles and stops.
 
 A few commands you can type straight into the input box:
 
@@ -125,19 +125,21 @@ Click Settings in the UI to edit it:
 
 ### Where the conversation lives
 
-**The WorkBuddy leg attaches to the conversation your client already has for that folder**, so
-what the hub sends and receives shows up in the WorkBuddy window and can be continued there.
+**Both legs pick up the conversation that already exists for a folder**, instead of starting a new
+one on every launch:
 
-Why: a session created by ACP itself never appears in the client's list (that list is read from a
-local database), so anything sent through one would be invisible to you.
+- **WorkBuddy** — attaches to the session its client is already using for that folder, so what the
+  hub sends and receives shows up in your WorkBuddy window and can be continued there
+- **Codex** — asks which thread was used last for that folder (`thread/list`) and reopens it
+  (`thread/resume`), so the Codex client does not gain a new conversation every launch
 
-- If the folder has no conversation in the client yet, one is created — and it will not show up in
-  the client either
-- To stop borrowing your existing conversation: set `borrowClientSession` to `false` in
-  `~/.agent-hub/config.json`
+Why bother: a session created by ACP itself never appears in the WorkBuddy client's list (that list
+is read from a local database), so anything sent through one would be invisible to you. Codex has
+the same shape of problem — a fresh thread does land under `~/.codex/sessions/` and
+`codex resume <threadId>` opens it, but the client's sidebar does not necessarily list it.
 
-Codex works differently: the thread the hub starts is written under `~/.codex/sessions/`, so
-`codex resume <threadId>` opens it — but the client's sidebar does not necessarily list it.
+- A conversation is created only when the folder does not have one yet
+- To always start fresh instead: set `borrowClientSession` to `false` in `~/.agent-hub/config.json`
 
 Config stays on your machine; it doesn't travel with the repo. Everything lives in
 `~/.agent-hub/`:
@@ -208,7 +210,12 @@ a lot. The runtime log is at `~/.agent-hub/relay.log`.
 **I asked them to "talk to each other" and only one answered** — the agents cannot see each other:
 all routing lives in the hub, so each agent believes it is simply talking to you. Carrying messages
 across is the hub's job — that is the **auto-relay**: when one leg finishes, its reply is forwarded
-to the other (up to 3 rounds), so they genuinely do pick up the thread.
+to the other, so they genuinely do pick up the thread. There is no round limit; when a leg has
+nothing left to add it answers `[END]` and the relaying stops.
+
+**The Codex side gains a new conversation every launch** — it used to start a fresh thread each
+time. It now reopens the thread last used for that folder (see "Where the conversation lives"
+above); the log says "carried on in the thread it was already using".
 
 Each agent is told once, on its first message, who else is on the hub — so it no longer guesses
 (and stops inventing a subagent to play the other party).

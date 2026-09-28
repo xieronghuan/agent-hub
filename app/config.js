@@ -35,10 +35,15 @@ const DEFAULTS = {
   // the others (bounded by autoRelayMaxHops rounds).
   autoRelay: true,
   // 最多转几轮。0 = 不限（只能靠 /stop 或对方的「谈完了」暗号停）。
-  // 默认给 6：实测不限轮数时它们会互相发"待命""收到"这类空话停不下来。
-  autoRelayMaxHops: 6,
-  // Attach to the WorkBuddy conversation the desktop client already shows for a
-  // folder, instead of a new session the client never lists.
+  // 默认 0：要的是它们自己接着干，不是用户守在旁边数轮数。
+  // 空转不靠"限轮数"防 —— 靠暗号（[完]）和"和上一轮一字不差"两条，
+  // 见 relay-server.js 的 _onTurnEnd。
+  autoRelayMaxHops: 0,
+  // Carry on in the conversation that already exists for a folder, instead of
+  // starting a fresh one every launch. Applies to both agents:
+  //   WorkBuddy — attach to the session its desktop client already shows
+  //   Codex     — reopen the most recent thread for that folder
+  // Turn it off and every launch starts a brand new conversation.
   borrowClientSession: true,
   // Agents (falls back to app/agents.js when empty)
   agents: DEFAULT_AGENTS,

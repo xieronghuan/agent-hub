@@ -150,6 +150,8 @@ const DICT = {
     'relay.started': '中继启动，接了 {n} 个 agent：{names}',
     'relay.readyServer': '{name} 就绪（thread={thread}  cwd={cwd}）',
     'relay.readyAcp': '{name} 就绪（{base}  session={session}  cwd={cwd}）',
+    'relay.codexResumed': '{name} 接着用原来的对话（{thread}），没有另开一条',
+    'relay.codexResumeFailed': '{name} 没接上原来的对话（{msg}），这次只能新开一条',
     'relay.modelNow': '{name} 当前模型：{model}',
     'relay.effortNow': '{name} 思考强度：{value}',
     'relay.setOk': '{name} 已设置{what}：{value}',
@@ -195,8 +197,8 @@ const DICT = {
     'relay.autoEnded': '{name} 表示谈完了，自动接力停了。',
     'relay.autoRepeat': '{name} 这一轮和上一轮说的一模一样，判定在原地打转，自动接力停了。',
     'relay.autoArmed': '自动接力：谁答完，它的回复会自动转给另一个 agent（最多 {n} 轮）。输入 /stop 停这一轮。',
-    'relay.autoArmedNoLimit': '自动接力：谁答完就转给另一个。**不限轮数** —— 不敲 /stop 它会一直来回发'
-      + '（实测 90 秒能来回 25 轮，还会退化成互相发"待命"这类空话）。',
+    'relay.autoArmedNoLimit': '自动接力：谁答完就转给另一个，不限轮数。想让它停就发 /stop；'
+      + '它们觉得没必要再接话时会回「[完]」，也会自动停。',
     'relay.autoForward': '{from} 的回复转给了 {to}（第 {n}/{max} 轮）',
     'relay.autoForwardNoMax': '{from} 的回复转给了 {to}（第 {n} 轮）',
     'relay.autoForwardFailed': '转给 {to} 失败：{msg}',
@@ -335,6 +337,8 @@ const DICT = {
     'relay.started': 'Relay started with {n} agents: {names}',
     'relay.readyServer': '{name} ready (thread={thread}  cwd={cwd})',
     'relay.readyAcp': '{name} ready ({base}  session={session}  cwd={cwd})',
+    'relay.codexResumed': '{name} carried on in the thread it was already using ({thread})',
+    'relay.codexResumeFailed': '{name} could not reopen the previous thread ({msg}), so this one is new',
     'relay.modelNow': '{name} current model: {model}',
     'relay.effortNow': '{name} reasoning effort: {value}',
     'relay.setOk': '{name} set {what} to {value}',
@@ -380,8 +384,8 @@ const DICT = {
     'relay.autoEnded': '{name} said the conversation was done — auto-relay stopped.',
     'relay.autoRepeat': '{name} repeated its previous message word for word — treating that as a loop and stopping.',
     'relay.autoArmed': 'Auto-relay: whichever agent answers, its reply is passed to the other (up to {n} rounds). Type /stop to stop this round.',
-    'relay.autoArmedNoLimit': 'Auto-relay: whoever answers, its reply goes to the other. **No round limit** — '
-      + 'without /stop it keeps going (measured: 25 rounds in 90 seconds, degrading into "standing by" filler).',
+    'relay.autoArmedNoLimit': 'Auto-relay: whoever answers, its reply goes to the other, with no round limit. '
+      + 'Send /stop to end it sooner; if an agent has nothing more to add it replies "[END]" and that stops it too.',
     'relay.autoForward': 'Forwarded {from}\'s reply to {to} (round {n}/{max})',
     'relay.autoForwardNoMax': 'Forwarded {from}\'s reply to {to} (round {n})',
     'relay.autoForwardFailed': 'Could not forward to {to}: {msg}',

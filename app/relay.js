@@ -236,11 +236,37 @@ class CodexLink extends EventEmitter {
     return id;
   }
 
-  /** 接续已有会话 */
+  /** 接续已有会话；顺手把服务端记着的模型/强度接回来，免得界面显示成默认值 */
   async resumeThread(threadId) {
-    const r = await this.rpc('thread/resume', { threadId });
+    // excludeTurns：只要会话本身，不要历史轮次（历史在客户端那边读，这里用不上）
+    const r = await this.rpc('thread/resume', { threadId, excludeTurns: true }, 30000);
     this.threadId = threadId;
+    const th = (r && r.thread) || {};
+    const model = (r && r.model) || th.model;
+    if (model) this.model = model;
+    const eff = (r && r.reasoningEffort) || th.reasoningEffort;
+    if (eff) this.effort = eff;
     return r;
+  }
+
+  /**
+   * 按目录找**最近用过的那条**会话。
+   *
+   * 为什么需要：以前每次启动都无条件 thread/start，于是每开一次程序，
+   * Codex 客户端里就多出一条对话（2026-09-28 用户反馈「它每回一条消息就新建个对话」）。
+   * WorkBuddy 那边一直是借用客户端已有的会话，Codex 这边补齐。
+   *
+   * thread/list 的返回是 { data: [...] }，每项有 id / cwd / updatedAt / source / preview。
+   */
+  async findRecentThread(cwd) {
+    const p = { limit: 20, sortKey: 'updated_at', sortDirection: 'desc', archived: false };
+    if (cwd) p.cwd = cwd;
+    const r = await this.rpc('thread/list', p, 20000);
+    const arr = (r && r.data) || [];
+    const norm = (s) => String(s || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    const want = norm(cwd);
+    const hit = arr.find((x) => x && x.id && (!want || norm(x.cwd) === want));
+    return hit ? hit.id : null;
   }
 
   /** 发一轮消息。立即返回 turnId；正文通过 delta 事件流出 */

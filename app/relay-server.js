@@ -110,7 +110,7 @@ class Relay extends EventEmitter {  constructor(opts) {
       if (def.kind === 'codex-app-server') {
         await link.connect();
         await link.init();
-        await link.startThread(cwd, { sandbox: 'read-only' });
+        await this._openCodexThread(link, def, cwd);
         this.emit('info', t('relay.readyServer', { name: def.name, thread: link.threadId, cwd }));
         // 模型列表拉不到不算致命（老版本 codex 没 model/list），但要说出来
         try {
@@ -241,6 +241,29 @@ class Relay extends EventEmitter {  constructor(opts) {
       }
     }
     return link.newSession(cwd);
+  }
+
+  /**
+   * 为 Codex 开一个 thread —— 和上面的 `_openSession` 对称：**先续用，建不出来才新建**。
+   *
+   * ⚠️ 以前这里是无条件 `startThread`，于是每启动一次程序，Codex 客户端里就多一条对话，
+   * 而 WorkBuddy 那边因为借用客户端会话，看着是一条到底 —— 用户看到的就是这种不对称。
+   */
+  async _openCodexThread(link, def, cwd) {
+    if (this.borrowClientSession && link.findRecentThread) {
+      try {
+        const id = await link.findRecentThread(cwd);
+        if (id) {
+          await link.resumeThread(id);
+          this.emit('info', t('relay.codexResumed', { name: def.name, thread: id }));
+          return id;
+        }
+      } catch (e) {
+        this.emit('info', t('relay.codexResumeFailed', { name: def.name, msg: e.message }));
+      }
+    }
+    await link.startThread(cwd, { sandbox: 'read-only' });
+    return link.threadId;
   }
 
   /**
@@ -388,6 +411,7 @@ class Relay extends EventEmitter {  constructor(opts) {
   async switchWs(agentId, cwd) {
     const leg = this.legs.get(agentId);
     if (!leg) throw new Error(t('relay.unknownAgent', { id: agentId }));
+    const same = leg.cwd === cwd;
     // A new session/thread forgets who else is on the desk, so announce it again
     delete this._deskTold[agentId];
     leg.cwd = cwd;
@@ -398,9 +422,12 @@ class Relay extends EventEmitter {  constructor(opts) {
     }
 
     if (leg.def.kind === 'codex-app-server') {
-      await leg.link.startThread(cwd, { sandbox: 'read-only' });   // cwd 变了必须新开 thread
-      this.emit('info', t('relay.switchedThread', { name: leg.def.name, cwd, thread: leg.link.threadId }));
-      return leg.link.threadId;
+      // 目录没变就原样留着 —— 以前这里无条件 startThread，于是「重选一次同样的目录」
+      // 也会在 Codex 客户端里多出一条对话
+      if (same && leg.link.threadId) return leg.link.threadId;
+      const id = await this._openCodexThread(leg.link, leg.def, cwd);
+      this.emit('info', t('relay.switchedThread', { name: leg.def.name, cwd, thread: id }));
+      return id;
     }
 
     if (leg.def.kind === 'acp') {
