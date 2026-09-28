@@ -59,13 +59,13 @@ Pick who you're sending to from the dropdown at the bottom left, type, and press
 
 ### Getting them to talk to each other
 
-By default each agent answers you and never sees the others. Picking **Everyone** turns on the
-auto-relay: whoever finishes a turn has its reply passed on to the others, up to 3 rounds (so it
-cannot ping-pong forever).
+**The auto-relay is on by default.** Send a message to either agent: when it finishes, its reply is
+**passed to the other one automatically**, which answers back — up to 3 rounds, then it stops so
+they cannot ping-pong forever.
 
 - Forwarded messages carry a `[Agent Hub · from xxx]` prefix, so the receiver knows who wrote it
-- Type `/stop` to stop at any time
-- To turn the whole thing off, set `autoRelay` to `false` in `~/.agent-hub/config.json`
+- Type `/stop` to end the current round; sending another message starts a new one
+- To turn it off: set `autoRelay` to `false` in `~/.agent-hub/config.json`
 
 A few commands you can type straight into the input box:
 
@@ -163,10 +163,10 @@ symmetric interfaces, so either one is a fine template.
 **Double-clicking the exe does nothing** — check your antivirus first; unsigned exes get blocked
 a lot. The runtime log is at `~/.agent-hub/relay.log`.
 
-**I asked them to "talk to each other" and only one answered** — the agents cannot see each other,
-and that is deliberate: all routing lives in the hub, so each agent believes it is simply talking
-to you. Picking "Everyone" delivers one message to all of them **and starts the auto-relay**, so
-they then really do pass replies back and forth (up to 3 rounds).
+**I asked them to "talk to each other" and only one answered** — the agents cannot see each other:
+all routing lives in the hub, so each agent believes it is simply talking to you. Carrying messages
+across is the hub's job — that is the **auto-relay**: when one leg finishes, its reply is forwarded
+to the other (up to 3 rounds), so they genuinely do pick up the thread.
 
 Each agent is told once, on its first message, who else is on the hub — so it no longer guesses
 (and stops inventing a subagent to play the other party).

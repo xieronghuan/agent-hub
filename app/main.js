@@ -202,6 +202,7 @@ let quitting = false;
 let relay = null;
 let acpPorts = [];
 let proxyInfo = { proxy: '', src: '' };
+let autoHintShown = false;        // 自动接力的提示每次运行只说一次，别每发一条都刷
 
 /* ---------- Pushing to the UI ---------- */
 
@@ -313,6 +314,7 @@ function helpText() {
     t('help.wsSwitch'),
     t('help.target'),
     t('help.everyone'),
+    t('help.auto'),
     t('help.stop'),
     t('help.status'),
     t('help.clear'),
@@ -371,14 +373,14 @@ async function handleInput(text, to) {
 
   push({ who: 'sys', text: t('cmd.sentTo', { names: targets.map((a) => a.name || a.id).join(', ') }) });
 
-  // Sending to "Everyone" is what starts the auto-relay (so a normal
-  // single-target message never quietly burns tokens); /stop ends it.
-  if (relay.arm && relay.disarm) {
-    if (tgt === ALL && relay.autoRelay) {
-      relay.arm();
+  // Auto-relay is on for every message: whichever agent answers, its reply gets
+  // passed to the other one. Sending again just restarts the round counter;
+  // /stop ends the current round. autoRelay:false in config turns it all off.
+  if (relay.arm && relay.autoRelay) {
+    relay.arm();
+    if (!autoHintShown) {
+      autoHintShown = true;
       log(t('relay.autoArmed', { n: relay.maxHops }));
-    } else {
-      relay.disarm();
     }
   }
 
