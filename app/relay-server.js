@@ -195,7 +195,9 @@ class Relay extends EventEmitter {
     if (borrow) {
       try {
         await link.loadSession(borrow, cwd);
-        this.emit('info', t('relay.borrowed', { name: def.name, session: borrow }));
+        this.emit('info', link.loadUnconfirmed
+          ? t('relay.borrowUnconfirmed', { name: def.name, session: borrow })
+          : t('relay.borrowed', { name: def.name, session: borrow }));
         return link.sessionId;
       } catch (e) {
         this.emit('info', t('relay.borrowFailed', { session: borrow, msg: e.message }));

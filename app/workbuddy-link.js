@@ -118,18 +118,18 @@ class WorkBuddyLink extends EventEmitter {
   /**
    * 接进一条已有会话（"借用"客户端正在用的那条）。
    *
-   * ⚠️ 必须要求主机**真的返回 sessionId**：以前没拿到返回时会沿用请求的 id，
-   * 于是"看起来接上了"，其实主机可能根本没接受。宁可抛错让上层回退新建。
+   * ⚠️ 这台主机**不回显 sessionId**：`session/load` 的 result 是个模型列表
+   * （`{"models":{"availableModels":[…]}}`），没有 error，也看不出到底加载没有。
+   * 所以：只要没报错就沿用它，但把 `unconfirmed` 标出来让上层提示 ——
+   * 宁可说"未确认"，也不要假装肯定，更不要因为拿不到 id 就把这条唯一的通路丢掉。
    */
   async loadSession(sessionId, cwd) {
     const res = await this.rpc('session/load', { sessionId, cwd: cwd || undefined, mcpServers: [] });
+    if (res.error) throw new Error('session/load 报错：' + JSON.stringify(res.error).slice(0, 200));
     const id = res.result && (res.result.sessionId || res.result.session_id);
-    if (!id) {
-      throw new Error('session/load 未返回 sessionId：'
-        + JSON.stringify(res.result || res.error || {}).slice(0, 200));
-    }
-    this.sessionId = id;
-    return id;
+    this.sessionId = id || sessionId;
+    this.loadUnconfirmed = !id;
+    return this.sessionId;
   }
 
   /**
