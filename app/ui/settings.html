@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Agent Hub · 设置</title>
+<style>
+  :root{
+    --bg:#0c0c0c; --bar:#1b1b1b; --line:#2b2b2b;
+    --fg:#cccccc; --dim:#7a7a7a; --accent:#3fb950;
+    --err:#ff7b72; --warn:#d29922;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:13px/1.7 "Cascadia Mono","Consolas","Courier New",monospace;padding:16px 18px}
+  h1{font-size:14px;margin:0 0 2px;color:#e6e6e6;font-weight:600}
+  .sub{color:var(--dim);font-size:11px;margin-bottom:14px;word-break:break-all}
+  .row{margin-bottom:14px}
+  label{display:block;font-size:12px;color:#bbb;margin-bottom:5px}
+  .hint{color:var(--dim);font-size:11px;margin-top:4px;word-break:break-all}
+  .hint b{color:var(--warn);font-weight:600}
+  .hint .ok{color:var(--accent)}
+  .line{display:flex;gap:8px}
+  input{flex:1;background:#161616;color:var(--fg);border:1px solid #3a3a3a;border-radius:5px;
+        font:12px "Cascadia Mono","Consolas",monospace;padding:6px 8px;outline:none;min-width:0}
+  input:focus{border-color:var(--accent)}
+  button{background:#242424;color:#ddd;border:1px solid #3a3a3a;border-radius:5px;
+         font:12px "Cascadia Mono","Consolas",monospace;padding:6px 12px;cursor:pointer;white-space:nowrap}
+  button:hover{border-color:#5a5a5a;background:#2c2c2c}
+  button.primary{border-color:#2f7d3a;color:#b7f0c2}
+  button.primary:hover{background:#1d3d24;border-color:#3fa14e}
+  #foot{display:flex;gap:8px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+  #msg{margin-top:12px;font-size:12px;white-space:pre-wrap;min-height:20px}
+  .err{color:var(--err)} .good{color:var(--accent)} .note{color:var(--dim)}
+</style>
+</head>
+<body>
+  <h1>设置</h1>
+  <div class="sub">存到：<span id="file">…</span>　·　只影响这台电脑，不写进源码</div>
+
+  <div class="row">
+    <label>node.exe 路径（留空 = 自动探测）</label>
+    <div class="line">
+      <input id="nodePath" placeholder="自动探测">
+      <button data-pick="node">选择…</button>
+    </div>
+    <div class="hint" id="nodeHint">—</div>
+  </div>
+
+  <div class="row">
+    <label>codex.exe 路径（留空 = 自动探测）</label>
+    <div class="line">
+      <input id="codexCliPath" placeholder="自动探测">
+      <button data-pick="codex">选择…</button>
+    </div>
+    <div class="hint" id="codexHint">—</div>
+  </div>
+
+  <div class="row">
+    <label>代理地址（留空 = 自动探测本机常见端口，再不行就不用代理）</label>
+    <input id="proxy" placeholder="例如 http://127.0.0.1:7897">
+    <div class="hint" id="proxyHint">—</div>
+  </div>
+
+  <div class="row">
+    <label>Codex 端口</label>
+    <input id="codexPort" placeholder="8899" style="max-width:140px">
+    <div class="hint">Agent Hub 会用它在本机起 codex app-server。一般不用改。</div>
+  </div>
+
+  <div id="foot">
+    <button class="primary" id="save">保存</button>
+    <button id="saveRestart">保存并重启</button>
+    <button id="detect">自动检测并填入</button>
+    <button id="close" style="margin-left:auto">关闭</button>
+  </div>
+
+  <div id="msg"></div>
+
+<script>
+  const $ = function (id) { return document.getElementById(id); };
+  function say(t, cls) { const m = $('msg'); m.className = cls || ''; m.textContent = t; }
+
+  function show(d) {
+    $('file').textContent = d.file;
+    $('nodePath').value = d.nodePath || '';
+    $('codexCliPath').value = d.codexCliPath || '';
+    $('proxy').value = d.proxy || '';
+    $('codexPort').value = d.codexPort || '';
+
+    const r = d.resolved || {};
+    $('nodeHint').innerHTML = r.node
+      ? '当前生效：<span class="ok">' + esc(r.node) + '</span>'
+      : '<b>没找到</b>　请点「选择…」指定，或点「自动检测并填入」';
+    $('codexHint').innerHTML = r.codexCli
+      ? '当前生效：<span class="ok">' + esc(r.codexCli) + '</span>'
+      : '<b>没找到</b>　没装 Codex 可以不管；要用就点「选择…」指定';
+
+    if (r.proxyEnv) $('proxyHint').innerHTML = '当前来自环境变量 RELAY_PROXY：<span class="ok">' + esc(r.proxyEnv) + '</span>（会覆盖这里填的）';
+    else if (r.proxyNow) $('proxyHint').innerHTML = '当前生效：<span class="ok">' + esc(r.proxyNow) + '</span>（来自：' + esc(r.proxySrc || '') + '）';
+    else $('proxyHint').innerHTML = '当前：不使用代理。Codex 连不上时，多半要在这里填本机代理地址。';
+
+    if (!d.nodePath && r.nodeAuto) $('nodePath').placeholder = '自动探测到：' + r.nodeAuto;
+    if (!d.codexCliPath && r.codexCliAuto) $('codexCliPath').placeholder = '自动探测到：' + r.codexCliAuto;
+    if (!d.hasFile) say('这台电脑还没有配置文件，第一次保存时会自动生成。', 'note');
+  }
+  function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+
+  function payload() {
+    return {
+      nodePath: $('nodePath').value.trim(),
+      codexCliPath: $('codexCliPath').value.trim(),
+      proxy: $('proxy').value.trim(),
+      codexPort: $('codexPort').value.trim(),
+    };
+  }
+
+  async function reload() { show(await window.cfg.get()); }
+
+  document.querySelectorAll('[data-pick]').forEach(function (b) {
+    b.addEventListener('click', async function () {
+      const kind = b.getAttribute('data-pick');
+      const r = await window.cfg.pick(kind);
+      if (r && r.ok) { $(kind === 'node' ? 'nodePath' : 'codexCliPath').value = r.path; say('已选好，记得点「保存」。', 'note'); }
+    });
+  });
+
+  $('detect').addEventListener('click', async function () {
+    const r = await window.cfg.detect();
+    if (r.node) $('nodePath').value = r.node;
+    if (r.codexCli) $('codexCliPath').value = r.codexCli;
+    say((r.node ? '' : 'node 没自动找到；') + (r.codexCli ? '' : 'codex 没自动找到；') + '已填入找到的路径，点「保存」生效。', 'note');
+  });
+
+  $('save').addEventListener('click', async function () {
+    const r = await window.cfg.save(payload());
+    if (r.ok) { say('已保存 → ' + r.file + '\n重启 Agent Hub 后生效。', 'good'); reload(); }
+    else say('保存失败：' + r.error, 'err');
+  });
+
+  $('saveRestart').addEventListener('click', async function () {
+    const r = await window.cfg.save(payload());
+    if (!r.ok) { say('保存失败：' + r.error, 'err'); return; }
+    say('已保存，正在重启…', 'good');
+    window.cfg.restart();
+  });
+
+  $('close').addEventListener('click', function () { window.cfg.close(); });
+
+  reload();
+</script>
+</body>
+</html>

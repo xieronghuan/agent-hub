@@ -1,0 +1,26 @@
+# ---- 私有开发笔记（含本机路径等，不进公开仓库）----
+/CONVENTIONS.md
+/DEVLOG.md
+/DEVLOG-*.md
+/OPEN-QUESTIONS.md
+
+# ---- 项目数据 / 记忆 ----
+.workbuddy/
+
+# ---- 依赖与打包产物 ----
+app/node_modules/
+/dist/
+
+# ---- 第三方协议定义（约 3.9MB；要自己生成，见 README）----
+/codex-schema/
+
+# ---- 运行期产物 ----
+*.log
+*.jsonl
+.workspace
+/shot*.png
+*.pdf
+
+# ---- 系统 ----
+Thumbs.db
+Desktop.ini

@@ -1,0 +1,3 @@
+# cmd.exe 读 LF 会出 "?rem" 之类的报错，启动器必须是 CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf

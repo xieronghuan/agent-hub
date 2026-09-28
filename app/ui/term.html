@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Agent Hub</title>
+<style>
+  :root{
+    --bg:#0c0c0c; --bar:#1b1b1b; --line:#2b2b2b;
+    --fg:#cccccc; --dim:#7a7a7a; --accent:#3fb950;
+    --user:#d2a8ff; --err:#ff7b72;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:var(--bg);color:var(--fg);
+       font:13px/1.6 "Cascadia Mono","Consolas","Courier New",monospace;
+       display:flex;flex-direction:column;overflow:hidden}
+  #bar{flex:0 0 auto;background:var(--bar);border-bottom:1px solid var(--line);
+       padding:6px 12px;display:flex;align-items:center;gap:14px;font-size:12px;flex-wrap:wrap}
+  #legs{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .leg{display:flex;align-items:center;gap:6px}
+  .lg{width:8px;height:8px;border-radius:50%;flex:0 0 auto;display:inline-block;
+      opacity:.3;transition:opacity .15s}    /* 暗 = 未连接 */
+  .lg.on{opacity:1}                          /* 亮 = 已连接 */
+  .tag{color:var(--dim);user-select:none;white-space:nowrap}
+  .wspick{background:#242424;color:#ddd;border:1px solid #3a3a3a;border-radius:5px;
+          font:12px "Cascadia Mono","Consolas",monospace;padding:3px 6px;min-width:130px;
+          max-width:200px;outline:none;cursor:pointer;text-overflow:ellipsis}
+  .wspick:hover{border-color:#4a4a4a}
+  .wspick:focus{border-color:var(--accent)}
+  #status{margin-left:auto;color:var(--dim);white-space:nowrap}
+  #acts{display:flex;align-items:center;gap:6px}
+  .btn{background:#242424;color:#ddd;border:1px solid #3a3a3a;border-radius:5px;
+       font:12px "Cascadia Mono","Consolas",monospace;padding:3px 10px;cursor:pointer;
+       white-space:nowrap}
+  .btn:hover{border-color:#5a5a5a;background:#2c2c2c}
+  .btn:active{background:#333}
+  #out{flex:1 1 auto;overflow-y:auto;padding:10px 14px;white-space:pre-wrap;word-break:break-word}
+  #out::-webkit-scrollbar{width:9px}
+  #out::-webkit-scrollbar-thumb{background:#333;border-radius:4px}
+  .us{color:var(--user)}
+  .er{color:var(--err)}
+  .sy{color:var(--accent)}
+  .wsp{color:#d29922}
+  #in{flex:0 0 auto;border-top:1px solid var(--line);display:flex;align-items:center;
+      padding:8px 14px;gap:8px;background:#0f0f0f}
+  #ps{color:var(--accent);user-select:none}
+  #target{min-width:130px}
+  #cmd{flex:1;background:transparent;border:0;outline:0;color:var(--fg);
+       font:inherit;caret-color:var(--accent)}
+  #hint{color:var(--dim);font-size:11px;white-space:nowrap}
+</style>
+</head>
+<body>
+  <div id="bar">
+    <div id="legs"></div>
+    <span id="status">启动中…</span>
+    <span id="acts">
+      <button id="btnSet" class="btn" title="改本机路径 / 代理（存到用户目录，不动源码）">设置</button>
+      <button id="btnClr" class="btn" title="清空历史留档 relay.jsonl">清空留档</button>
+    </span>
+  </div>
+  <div id="out"></div>
+  <div id="in">
+    <span id="ps">PS&gt;</span>
+    <select id="target" class="wspick" title="这条消息发给谁"></select>
+    <input id="cmd" autocomplete="off" spellcheck="false" placeholder="输入消息，回车发送…">
+    <span id="hint">/help 看命令</span>
+  </div>
+<script>
+  const out = document.getElementById('out');
+  const cmd = document.getElementById('cmd');
+  const statusEl = document.getElementById('status');
+  const legsEl = document.getElementById('legs');
+  const targetSel = document.getElementById('target');
+
+  let AGENTS = [];                              // [{id,name,color,cwd}]
+  const wsSelByAgent = {};                      // id → <select>
+  const dotByAgent = {};                        // id → 圆点元素
+
+  /* ---------- 颜色：每个 agent 一个标识色，圆点与正文共用 ---------- */
+  function ensureAgentColors() {
+    AGENTS.forEach(function (a) {
+      if (!a.color) return;
+      if (document.querySelector('style[data-a="' + a.id + '"]')) return;
+      const s = document.createElement('style');
+      s.setAttribute('data-a', a.id);
+      s.textContent = '.a-' + a.id + '{color:' + a.color + '}';
+      document.head.appendChild(s);
+    });
+  }
+
+  /* ---------- 顶栏：每个 agent 一组 [● 名字 工作空间▾] ---------- */
+  function renderLegs() {
+    legsEl.innerHTML = '';
+    AGENTS.forEach(function (a) {
+      const box = document.createElement('span');
+      box.className = 'leg';
+
+      const dot = document.createElement('i');
+      dot.className = 'lg';                     // 色=身份，亮/暗=连没连上
+      if (a.color) dot.style.background = a.color;
+      box.appendChild(dot);
+      dotByAgent[a.id] = dot;
+
+      const nm = document.createElement('span');
+      nm.className = 'tag';
+      nm.textContent = a.name;
+      box.appendChild(nm);
+
+      const sel = document.createElement('select');
+      sel.className = 'wspick';
+      sel.title = a.name + ' 的工作空间';
+      sel.addEventListener('change', function () {
+        if (window.term) window.term.selectWs(a.id, sel.value);
+      });
+      box.appendChild(sel);
+      wsSelByAgent[a.id] = sel;
+
+      legsEl.appendChild(box);
+    });
+  }
+
+  /* ---------- 底栏：发给谁 ---------- */
+  function renderTargets() {
+    const prev = targetSel.value;
+    targetSel.innerHTML = '';
+    AGENTS.forEach(function (a) {
+      const o = document.createElement('option');
+      o.value = a.id;
+      o.textContent = a.name;
+      if (a.id === prev) o.selected = true;
+      targetSel.appendChild(o);
+    });
+    if (!targetSel.value && AGENTS.length) targetSel.value = AGENTS[0].id;
+  }
+
+  /** 取路径最后一段（文件夹名） */
+  function baseName(p) {
+    const s = String(p || '').replace(/[\\/]+$/, '');
+    const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'));
+    return i >= 0 ? s.slice(i + 1) : s;
+  }
+  /** 取路径倒数第二段（用于重名时区分） */
+  function parentName(p) {
+    const s = String(p || '').replace(/[\\/]+$/, '');
+    const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'));
+    if (i <= 0) return '';
+    const parent = s.slice(0, i);
+    const j = Math.max(parent.lastIndexOf('\\'), parent.lastIndexOf('/'));
+    return j >= 0 ? parent.slice(j + 1) : parent;
+  }
+
+  function fillWs(sel, list, current) {
+    if (!sel) return;
+    sel.innerHTML = '';
+    const cur = String(current || '').toLowerCase();
+
+    // 只显示文件夹名；同名时用「父目录/名字」区分
+    const names = list.map(baseName);
+    const count = {};
+    names.forEach(function (n) { count[n] = (count[n] || 0) + 1; });
+
+    list.forEach(function (w, i) {
+      const o = document.createElement('option');
+      o.value = w;                                   // 值仍是完整路径
+      o.title = w;                                   // 悬浮显示完整路径
+      o.textContent = count[names[i]] > 1 ? (parentName(w) + '/' + names[i]) : names[i];
+      if (w.toLowerCase() === cur) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  function stamp(t) {
+    const d = t ? new Date(t) : new Date();
+    const p = function (n) { return String(n).padStart(2, '0'); };
+    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  /** agent id → 显示名（Codex / WorkBuddy） */
+  function nameOf(id) {
+    const a = AGENTS.filter(function (x) { return x.id === id; })[0];
+    return a ? a.name : id;
+  }
+
+  function line(who, text, ts) {
+    const span = document.createElement('span');
+    if (who === 'user') span.className = 'us';
+    else if (who === 'error') span.className = 'er';
+    else if (who === 'sys') span.className = 'sy';
+    else if (who === 'ws') span.className = 'wsp';
+    else if (who) span.className = 'a-' + who;   // agent 输出用它的标识色，与顶栏圆点对应
+    const plain = !who || who === 'sys' || who === 'user' || who === 'ws' || who === 'error';
+    const label = who ? (plain ? who : nameOf(who)) : '';
+    span.textContent = '[' + stamp(ts) + '] ' + (label ? label + ' ' : '') + text + '\n';
+    out.appendChild(span);
+    out.scrollTop = out.scrollHeight;
+  }
+
+  function setStatus(s) { statusEl.textContent = s; }
+
+  /** 状态灯：唯一标准就是「连上了没有」—— ready 绿，其余灰 */
+  function applyStatuses(statuses) {
+    if (!statuses) return;
+    Object.keys(statuses).forEach(function (id) {
+      const d = dotByAgent[id];
+      if (!d) return;
+      d.className = 'lg' + (statuses[id] === 'ready' ? ' on' : '');
+      d.title = nameOf(id) + '：' + statuses[id];
+    });
+  }
+
+  if (window.term) {
+    window.term.onLine(function (e) {
+      if (e.who === 'clear') { out.textContent = ''; return; }
+      line(e.who || 'sys', e.text, e.ts);
+    });
+    window.term.onStatus(function (s) { setStatus(s.text); applyStatuses(s.statuses); });
+    window.term.onWsList(function (d) {
+      AGENTS = d.agents || [];
+      ensureAgentColors();
+      renderLegs();
+      renderTargets();
+      AGENTS.forEach(function (a) { fillWs(wsSelByAgent[a.id], d.list || [], a.cwd); });
+      applyStatuses(d.statuses);
+    });
+  } else {
+    line('sys', '（未连接到主进程）');
+  }
+
+  /* ---------- 右上角两个按钮：不用记命令，点就行 ---------- */
+  document.getElementById('btnSet').addEventListener('click', function () {
+    if (window.term) window.term.openSettings();
+  });
+  document.getElementById('btnClr').addEventListener('click', async function () {
+    if (!window.term) return;
+    const r = await window.term.clearLog();
+    if (r && r.cancelled) line('sys', '已取消清空留档。');
+    else if (!r || !r.ok) line('error', '清空留档失败：' + ((r && r.error) || '未知原因'));
+  });
+
+  cmd.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    const text = cmd.value.trim();
+    if (!text) return;
+    cmd.value = '';
+    line('user', text);
+    if (window.term) window.term.send({ text: text, to: targetSel.value });
+  });
+
+  cmd.focus();
+  document.body.addEventListener('click', function () { cmd.focus(); });
+</script>
+</body>
+</html>

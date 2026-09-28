@@ -1,0 +1,208 @@
+#!/usr/bin/env node
+/**
+ * codex/relay/app/relay-server.js —— 对等中继（**可扩展，支持 N 个 agent**）
+ *
+ * 架构：多个 agent 同时连在中继上，**对等**，谁也不指挥谁。
+ * 路由全在中继里，agent 之间彼此不知道对方存在。
+ *
+ *    agent A ← ws  ──┐
+ *    agent B ← http ─┼──  Relay  ──  对外只暴露 delta / status / send()
+ *    agent C ← ...  ──┘
+ *
+ * ★ 要接新 agent：改 `agents.js` 加一条即可，本文件不用动。
+ *
+ * 用法：
+ *   const relay = new Relay({ agents, cwd, cwds });
+ *   relay.on('delta', ({ from, text }) => ...);
+ *   await relay.start();
+ *   await relay.send('codex', '...');
+ */
+
+'use strict';
+const EventEmitter = require('events');
+const fs = require('fs');
+const path = require('path');
+const { CodexLink } = require('./relay');
+const { WorkBuddyLink } = require('./workbuddy-link');
+const { discoverPorts } = require('./discover');
+
+class Relay extends EventEmitter {
+  constructor(opts) {
+    super();
+    const o = opts || {};
+    this.agents = (o.agents || []).filter((a) => a && a.enabled !== false);
+    this.legs = new Map();                 // id → { def, link, cwd, status, base }
+    this.logFile = o.logFile || path.join(__dirname, 'relay.jsonl');
+    this.cwd = o.cwd || process.cwd();
+    this.cwds = o.cwds || {};              // id → 该腿的工作空间（每条腿可不同）
+    this.started = false;
+    this.markInbound = o.markInbound !== false;
+    this._acpBase = null;
+  }
+
+  /* ---------- 留档与状态 ---------- */
+
+  _archive(rec) {
+    try {
+      fs.appendFileSync(this.logFile, JSON.stringify(Object.assign({ ts: new Date().toISOString() }, rec)) + '\n', 'utf8');
+    } catch (_) {}
+  }
+
+  _setStatus(id, s) {
+    const leg = this.legs.get(id);
+    if (leg) leg.status = s;
+    this.emit('status', this.status());
+  }
+
+  /** 各腿状态快照，如 { codex:'ready', workbuddy:'error' } */
+  status() {
+    const out = {};
+    for (const [id, l] of this.legs) out[id] = l.status;
+    return out;
+  }
+
+  /* ---------- 起 ---------- */
+
+  async start() {
+    const names = this.agents.map((a) => a.name || a.id).join(', ');
+    this.emit('info', '中继启动，共 ' + this.agents.length + ' 条腿：' + names);
+    for (const def of this.agents) await this.startLeg(def);
+    this.started = true;
+    return this.status();
+  }
+
+  async startLeg(def) {
+    const cwd = this.cwds[def.id] || this.cwd;
+    const leg = { def, link: null, cwd, status: 'idle', base: null };
+    this.legs.set(def.id, leg);
+    this._setStatus(def.id, 'connecting');
+
+    try {
+      const link = this._makeLink(def);
+      link.on('close', () => this._setStatus(def.id, 'closed'));
+      link.on('turnDone', () => { this.emit('turnDone', { from: def.id }); this._archive({ from: def.id, kind: 'turnDone' }); });
+
+      if (def.kind === 'codex-app-server') {
+        await link.connect();
+        await link.init();
+        await link.startThread(cwd, { sandbox: 'read-only' });
+        this.emit('info', `${def.name} 就绪（thread=${link.threadId}  cwd=${cwd}）`);
+      } else if (def.kind === 'acp') {
+        const base = def.base || await this._discoverAcp();
+        if (!base) throw new Error('没发现可用的 ACP 端口');
+        link.base = base;
+        leg.base = base;
+        await link.connect();
+        await link.init();
+        await link.startEvents();
+        await link.newSession(cwd);
+        this.emit('info', `${def.name} 就绪（${base}  session=${link.sessionId}  cwd=${cwd}）`);
+      } else {
+        throw new Error('暂不支持的 kind：' + def.kind);
+      }
+
+      leg.link = link;
+      this._setStatus(def.id, 'ready');
+    } catch (e) {
+      this._setStatus(def.id, 'error');
+      this.emit('info', `${def.name} 接入失败：${e.message}`);
+    }
+    return leg;
+  }
+
+  /** 按 kind 造对应的 link 并接好事件 */
+  _makeLink(def) {
+    const link = def.kind === 'codex-app-server'
+      ? new CodexLink(`ws://127.0.0.1:${def.port}`)
+      : new WorkBuddyLink(def.base || '');
+
+    link.on('delta', (t) => {
+      this.emit('delta', { from: def.id, text: t });
+      this._archive({ from: def.id, kind: 'delta', text: t });
+    });
+    if (typeof link.on === 'function') {
+      link.on('reasoning', (t) => this.emit('reasoning', { from: def.id, text: t }));
+    }
+    return link;
+  }
+
+  async _discoverAcp() {
+    if (this._acpBase) return this._acpBase;
+    const ports = await discoverPorts();
+    if (!ports.length) return null;
+    this._acpBase = 'http://127.0.0.1:' + ports[0];
+    return this._acpBase;
+  }
+
+  /* ---------- 发 ---------- */
+
+  async send(agentId, text) {
+    const t = String(text || '');
+    if (!t) return { ok: false, error: '内容为空' };
+    const leg = this.legs.get(agentId);
+    if (!leg) return { ok: false, error: '未知 agent：' + agentId };
+    if (!leg.link || leg.status !== 'ready') return { ok: false, error: (leg.def.name || agentId) + ' 未就绪' };
+
+    this._archive({ from: 'user', to: agentId, kind: 'prompt', text: t });
+    this.emit('sent', { to: agentId, text: t });
+
+    try {
+      if (leg.def.kind === 'codex-app-server') {
+        await leg.link.say(t);
+        return { ok: true };
+      }
+      // 注入 ACP 会话时加来源标记：否则消息与用户自己打的字完全一样，无法分辨
+      const marked = this.markInbound ? `[中继·${leg.def.name || leg.def.id}] ${t}` : t;
+      const r = await leg.link.prompt(marked);
+      return { ok: true, text: r.text };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  /* ---------- 换工作空间 ---------- */
+
+  async switchWs(agentId, cwd) {
+    const leg = this.legs.get(agentId);
+    if (!leg) throw new Error('未知 agent：' + agentId);
+    leg.cwd = cwd;
+    this.cwds[agentId] = cwd;
+    if (!leg.link || leg.status !== 'ready') {
+      this.emit('info', `${leg.def.name} 未就绪，仅记录工作空间`);
+      return null;
+    }
+
+    if (leg.def.kind === 'codex-app-server') {
+      await leg.link.startThread(cwd, { sandbox: 'read-only' });   // cwd 变了必须新开 thread
+      this.emit('info', `${leg.def.name} 已切到 ${cwd}（thread=${leg.link.threadId}）`);
+      return leg.link.threadId;
+    }
+
+    if (leg.def.kind === 'acp') {
+      try { leg.link.disconnect(); } catch (_) {}
+      const base = leg.base || await this._discoverAcp();
+      const link = this._makeLink(Object.assign({}, leg.def, { base }));
+      await link.connect();
+      await link.init();
+      await link.startEvents();
+      await link.newSession(cwd);
+      leg.link = link;
+      this.emit('info', `${leg.def.name} 已切到 ${cwd}（session=${link.sessionId}）`);
+      return link.sessionId;
+    }
+    return null;
+  }
+
+  close() {
+    for (const l of this.legs.values()) {
+      try {
+        if (!l.link) continue;
+        if (typeof l.link.close === 'function') l.link.close();
+        else if (typeof l.link.disconnect === 'function') l.link.disconnect();
+      } catch (_) {}
+    }
+    this.started = false;
+  }
+}
+
+module.exports = { Relay };
