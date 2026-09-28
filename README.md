@@ -37,7 +37,8 @@ Agent Hub 在中间摆一张桌子：**每个 agent 各接一条长连接，谁�
 
 ### 方式一：直接用 exe（推荐）
 
-1. 下载 `AgentHub.exe`（约 100 MB，portable，**免安装**）
+1. 到 **[Releases 页面](https://github.com/xieronghuan/agent-hub/releases/latest)** 下载 `AgentHub.exe`
+   （约 100 MB，portable，**免安装**）
 2. 双击打开
 3. 如果界面提示找不到 `codex.exe`，点右上角 **「设置」→「选择…」** 指一下位置即可 ——
    **不需要看任何文档**
