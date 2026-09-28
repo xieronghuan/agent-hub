@@ -172,9 +172,9 @@ class Relay extends EventEmitter {
         return;
       }
       this._hop++;
-      this.emit('info', t('relay.autoForward', {
-        from: this.nameOf(fromId), to: a.name || a.id, n: this._hop, max: this.maxHops,
-      }));
+      this.emit('info', this.maxHops > 0
+        ? t('relay.autoForward', { from: this.nameOf(fromId), to: a.name || a.id, n: this._hop, max: this.maxHops })
+        : t('relay.autoForwardNoMax', { from: this.nameOf(fromId), to: a.name || a.id, n: this._hop }));
       // 转发失败要说出来，不能静默吞掉（这里曾被一个 TDZ 错误坑过）
       const res = await this.send(a.id, text, { from: fromId });
       if (res && res.ok === false) {

@@ -167,8 +167,10 @@ const DICT = {
     'relay.fromAgent': '[中继·来自 {name}] ',
     'relay.desk': '[中继] 这张桌子上还接入了：{others}。你看不到它们，也不能直接联系它们 —— 消息都经过中继转达。',
     'relay.autoArmed': '自动接力：谁答完，它的回复会自动转给另一个 agent（最多 {n} 轮）。输入 /stop 停这一轮。',
-    'relay.autoArmedNoLimit': '自动接力：谁答完，它的回复会自动转给另一个 agent（不限轮数，输入 /stop 停）。',
+    'relay.autoArmedNoLimit': '自动接力：谁答完就转给另一个。**不限轮数** —— 不敲 /stop 它会一直来回发'
+      + '（实测 90 秒能来回 25 轮，还会退化成互相发"待命"这类空话）。',
     'relay.autoForward': '{from} 的回复转给了 {to}（第 {n}/{max} 轮）',
+    'relay.autoForwardNoMax': '{from} 的回复转给了 {to}（第 {n} 轮）',
     'relay.autoForwardFailed': '转给 {to} 失败：{msg}',
     'relay.autoStopped': '自动接力已停（到上限 {n} 轮）。要接着聊就再发一条。',
     'relay.autoOff': '自动接力已停。',
@@ -322,8 +324,10 @@ const DICT = {
     'relay.fromAgent': '[Agent Hub · from {name}] ',
     'relay.desk': '[Agent Hub] Also connected to this hub: {others}. You cannot see or reach them directly — messages travel through the hub.',
     'relay.autoArmed': 'Auto-relay: whichever agent answers, its reply is passed to the other (up to {n} rounds). Type /stop to stop this round.',
-    'relay.autoArmedNoLimit': 'Auto-relay: whichever agent answers, its reply is passed to the other (no round limit — type /stop to stop).',
+    'relay.autoArmedNoLimit': 'Auto-relay: whoever answers, its reply goes to the other. **No round limit** — '
+      + 'without /stop it keeps going (measured: 25 rounds in 90 seconds, degrading into "standing by" filler).',
     'relay.autoForward': 'Forwarded {from}\'s reply to {to} (round {n}/{max})',
+    'relay.autoForwardNoMax': 'Forwarded {from}\'s reply to {to} (round {n})',
     'relay.autoForwardFailed': 'Could not forward to {to}: {msg}',
     'relay.autoStopped': 'Auto-relay stopped after {n} rounds. Send another message to continue.',
     'relay.autoOff': 'Auto-relay stopped.',
